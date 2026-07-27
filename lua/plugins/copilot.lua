@@ -1,25 +1,58 @@
-local function reduce_with_rtk(text)
-  if not text or text == "" or vim.fn.executable("rtk") == 0 then
-    return text
-  end
-
-  local output = vim.fn.system({ "rtk" }, text)
-  if vim.v.shell_error ~= 0 or not output or output == "" then
-    return text
-  end
-  return output
+-- Shared prompt helpers for one-shot CopilotChat actions.
+local function prompt_and_ask(prompt, config)
+  vim.ui.input({ prompt = prompt }, function(input)
+    if input and input ~= "" then
+      require("CopilotChat").ask(input, config)
+    end
+  end)
 end
 
 local function ask_with_selection()
-  vim.ui.input({ prompt = "Copilot Selection Task: " }, function(input)
-    if input and input ~= "" then
-      require("CopilotChat").ask(reduce_with_rtk(input), {
-        tools = "copilot",
-        resources = "selection",
-        remember_as_sticky = false,
-      })
+  prompt_and_ask("Copilot Selection Task: ", {
+    tools = "copilot",
+    resources = "selection",
+    remember_as_sticky = false,
+  })
+end
+
+-- Post-process responses through Caveman without bypassing user callbacks.
+local function with_caveman(config)
+  local caveman = require("caveman")
+  local user_callback = config.callback
+
+  config.callback = function(response, source)
+    if user_callback then
+      user_callback(response, source)
     end
-  end)
+
+    response.content = caveman.process(response.content or "")
+  end
+
+  return config
+end
+
+local function ask_with_caveman()
+  local mode = vim.api.nvim_get_mode().mode
+  local config = {
+    tools = "copilot",
+    remember_as_sticky = false,
+  }
+
+  if mode:match("[vV\22]") then
+    config.resources = "selection"
+  end
+
+  prompt_and_ask("Copilot Caveman Task: ", with_caveman(config))
+end
+
+-- Keep chat continuation helpers together: they reuse the active chat buffer
+-- instead of opening a brand new request flow.
+local function focus_chat_input(chat)
+  chat.chat:focus()
+
+  if chat.config and chat.config.auto_insert_mode then
+    vim.cmd("startinsert")
+  end
 end
 
 local function continue_chat_with_selection()
@@ -30,7 +63,15 @@ local function continue_chat_with_selection()
   local current = chat.chat:get_message(constants.ROLE.USER, true)
   local content = current and current.content or ""
 
-  if not content:match("(^|\n)%s*#selection") then
+  local function has_selection_marker(text)
+    if not text then
+      return false
+    end
+
+    return text:match("^%s*#selection") or text:match("\n%s*#selection")
+  end
+
+  if not has_selection_marker(content) then
     content = content == "" and "#selection\n\n" or "#selection\n\n" .. content
   end
 
@@ -38,11 +79,7 @@ local function continue_chat_with_selection()
     role = constants.ROLE.USER,
     content = content,
   }, true)
-  chat.chat:focus()
-
-  if chat.config and chat.config.auto_insert_mode then
-    vim.cmd("startinsert")
-  end
+  focus_chat_input(chat)
 end
 
 local function handle_selection_request()
@@ -54,103 +91,80 @@ local function handle_selection_request()
   end
 end
 
--- Banner: show model, session size, tokens and duration as virtual text
-local banner_ns = vim.api.nvim_create_namespace("copilot_chat_banner")
+local function restore_last_prompt()
+  local chat = require("CopilotChat")
+  local constants = require("CopilotChat.constants")
 
-local function safe_require(name)
-  local ok, mod = pcall(require, name)
-  if ok then
-    return mod
+  chat.open()
+
+  local current = chat.chat:visible() and chat.chat:get_message(constants.ROLE.USER, true) or nil
+  local messages = chat.chat:get_messages()
+  local last_prompt = nil
+
+  for i = #messages, 1, -1 do
+    local message = messages[i]
+    if message.role == constants.ROLE.USER and message.content and vim.trim(message.content) ~= "" then
+      if not current or message.id ~= current.id then
+        last_prompt = message.content
+        break
+      end
+    end
   end
-  return nil
-end
 
-local function get_banner_text()
-  local chat = safe_require("CopilotChat")
-  if not chat then
-    return "Model: - | Session: - | Tokens: - | Time: -"
+  if not last_prompt and current and current.content and vim.trim(current.content) ~= "" then
+    last_prompt = current.content
   end
 
-  local model = "-"
-  pcall(function()
-    if chat.config and chat.config.model then
-      model = tostring(chat.config.model)
-    end
-  end)
-
-  local session_size = "-"
-  pcall(function()
-    if chat.chat then
-      if type(chat.chat.messages) == "table" then
-        session_size = tostring(#chat.chat.messages)
-      else
-        -- try common method names defensively
-        if type(chat.chat.get_history) == "function" then
-          local hist = chat.chat:get_history()
-          if type(hist) == "table" then
-            session_size = tostring(#hist)
-          end
-        end
-      end
-    end
-  end)
-
-  local tokens = "-"
-  local duration = "-"
-  pcall(function()
-    -- best-effort: some implementations expose session info
-    if chat.session and type(chat.session) == "table" then
-      if chat.session.tokens then
-        tokens = tostring(chat.session.tokens)
-      end
-      if chat.session.started_at and chat.session.ended_at then
-        duration = tostring(math.floor((chat.session.ended_at - chat.session.started_at))) .. "s"
-      elseif chat.session.started_at then
-        duration = tostring(math.floor(vim.loop.hrtime() / 1e9 - chat.session.started_at)) .. "s"
-      end
-    end
-  end)
-
-  return string.format("Model: %s | Session: %s msgs | Tokens: %s | Time: %s", model, session_size, tokens, duration)
-end
-
-local function update_banner(bufnr)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local ok, ft = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
-  if not ok or ft ~= "copilot-chat" then
+  if not last_prompt then
     return
   end
 
-  -- clear
-  vim.api.nvim_buf_clear_namespace(bufnr, banner_ns, 0, -1)
+  chat.chat:add_message({
+    role = constants.ROLE.USER,
+    content = last_prompt,
+  }, true)
+  focus_chat_input(chat)
+end
 
-  local line_count = vim.api.nvim_buf_line_count(bufnr)
-  if line_count == 0 then
-    return
-  end
-  local lnum = math.max(0, line_count - 1)
-  local text = get_banner_text()
+-- Session helpers stay tiny so keymaps can reference named actions.
+local function load_recent_session()
+  require("copilotchat_history").load_recent_session()
+end
 
-  vim.api.nvim_buf_set_extmark(bufnr, banner_ns, lnum, 0, {
-    virt_text = { { " " .. text, "Comment" } },
-    virt_text_pos = "eol",
-  })
+local function save_session()
+  require("copilotchat_history").save_session_as()
 end
 
 return {
   {
     "CopilotC-Nvim/CopilotChat.nvim",
     init = function()
+      -- Buffer-local UX tweaks for the dedicated Copilot chat window.
       vim.api.nvim_create_autocmd("FileType", {
         pattern = "copilot-chat",
         callback = function(ev)
           vim.keymap.set("i", "<Tab>", function()
             require("CopilotChat.completion").complete()
           end, { buffer = ev.buf, desc = "CopilotChat Complete" })
+
+          vim.keymap.set("i", "<C-s>", "<Nop>", {
+            buffer = ev.buf,
+            desc = "CopilotChat Disable Ctrl-S",
+          })
+
+          vim.keymap.set("i", "<C-j>", function()
+            local chat = require("CopilotChat")
+            local constants = require("CopilotChat.constants")
+            local message = chat.chat:get_message(constants.ROLE.USER, true)
+            if message and message.content and message.content ~= "" then
+              chat.ask(message.content)
+            end
+          end, { buffer = ev.buf, desc = "CopilotChat Submit" })
         end,
       })
     end,
     keys = {
+      -- Global entrypoints for the chat UI and custom workflows.
       {
         "<leader>ac",
         function()
@@ -168,17 +182,37 @@ return {
       {
         "<leader>at",
         function()
-          vim.ui.input({ prompt = "Copilot Task: " }, function(input)
-            if input and input ~= "" then
-              require("CopilotChat").ask(input, {
-                tools = "copilot",
-                remember_as_sticky = false,
-              })
-            end
-          end)
+          prompt_and_ask("Copilot Task: ", {
+            tools = "copilot",
+            remember_as_sticky = false,
+          })
         end,
         desc = "Copilot Task",
         mode = { "n", "x" },
+      },
+      {
+        "<leader>av",
+        ask_with_caveman,
+        desc = "Copilot Task (Caveman)",
+        mode = { "n", "x" },
+      },
+      {
+        "<leader>aw",
+        save_session,
+        desc = "Save Copilot Session",
+        mode = "n",
+      },
+      {
+        "<leader>ay",
+        restore_last_prompt,
+        desc = "Replay Last Copilot Prompt",
+        mode = "n",
+      },
+      {
+        "<leader>al",
+        load_recent_session,
+        desc = "Load Recent Copilot Session",
+        mode = "n",
       },
       {
         "<leader>ax",
@@ -196,31 +230,11 @@ return {
         desc = "Prompt Actions (CopilotChat)",
         mode = { "n", "x" },
       },
-      {
-        "<leader>aa",
-        function()
-          vim.ui.input({ prompt = "Advisor note (optional): " }, function(input)
-            local chat = require("CopilotChat")
-            local constants = require("CopilotChat.constants")
-            local message = chat.chat:get_message(constants.ROLE.USER, true)
-            local conversation = message and message.content or ""
-            local note = input or "Advisor check requested"
-            chat.ask("[Advisor check] " .. note .. "\n\nConversation snapshot:\n" .. conversation, {
-              model = "claude-opus-5",
-              tools = "copilot",
-              remember_as_sticky = false,
-            })
-          end)
-        end,
-        desc = "Request advisor check (CopilotChat)",
-        mode = "n",
-      },
     },
     opts = function(_, opts)
+      -- Preserve the existing chat UX while layering local defaults.
       opts = opts or {}
-      opts.model = "gpt-5-mini"
-      opts.advisor_model = "claude-opus-5"
-      opts.advisor_enabled = true
+      opts.model = "gpt-5.6-sol"
       opts.trusted_tools = { "file", "glob", "grep", "edit" }
       opts.chat_autocomplete = false
       opts.mappings = vim.tbl_deep_extend("force", opts.mappings or {}, {
@@ -230,11 +244,18 @@ return {
       })
       return opts
     end,
+    config = function(_, opts)
+      -- Extra integrations are initialized after the base plugin setup.
+      require("CopilotChat").setup(opts)
+      require("copilotchat_pretty").setup()
+      require("copilotchat_history").setup()
+    end,
   },
   {
     "saghen/blink.cmp",
     optional = true,
     opts = function(_, opts)
+      -- Disable blink sources inside CopilotChat's prompt buffer.
       opts = opts or {}
       opts.sources = opts.sources or {}
       opts.sources.per_filetype = opts.sources.per_filetype or {}
