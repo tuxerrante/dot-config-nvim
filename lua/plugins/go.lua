@@ -3,6 +3,8 @@ return {
     "mfussenegger/nvim-lint",
     optional = true,
     init = function()
+      local progress = require("progress_notifier")
+
       local function go_module_root(dirname)
         local out = vim.system({ "go", "env", "GOMOD" }, { cwd = dirname, text = true }):wait()
         if out.code ~= 0 then
@@ -48,7 +50,8 @@ return {
             local diagnostics = original_parser(output, bufnr, cwd)
             vim.schedule(function()
               local level = #diagnostics > 0 and vim.log.levels.WARN or vim.log.levels.INFO
-              vim.notify(("GoLint(%s): %d issue(s)"):format(scope, #diagnostics), level)
+              local icon = #diagnostics > 0 and "[warn]" or "[ok]"
+              progress.stop("golint", ("GoLint(%s): %d issue(s)"):format(scope, #diagnostics), level, icon)
             end)
             return diagnostics
           end
@@ -75,7 +78,7 @@ return {
           return
         end
 
-        vim.notify(("GoLint(%s) started"):format(scope), vim.log.levels.INFO)
+        progress.start("golint", "GoLint", ("running %s"):format(scope), vim.log.levels.INFO)
 
         local ok_try, err = pcall(lint.try_lint, { "golangcilint" }, {
           wrap_linter = function(linter)
@@ -84,6 +87,7 @@ return {
         })
 
         if not ok_try then
+          progress.stop("golint", "GoLint failed to start", vim.log.levels.ERROR, "")
           error(err)
         end
       end, {
