@@ -1,4 +1,9 @@
 -- Shared prompt helpers for one-shot CopilotChat actions.
+local runtime = require("copilotchat_runtime")
+local DEFAULT_TOOLS = runtime.DEFAULT_TOOLS
+local EDIT_TOOLS = runtime.EDIT_TOOLS
+local SHELL_TOOLS = runtime.SHELL_TOOLS
+
 local function prompt_and_ask(prompt, config)
   vim.ui.input({ prompt = prompt }, function(input)
     if input and input ~= "" then
@@ -9,7 +14,7 @@ end
 
 local function ask_with_selection()
   prompt_and_ask("Copilot Selection Task: ", {
-    tools = "copilot",
+    tools = DEFAULT_TOOLS,
     resources = "selection",
     remember_as_sticky = false,
   })
@@ -34,7 +39,7 @@ end
 local function ask_with_caveman()
   local mode = vim.api.nvim_get_mode().mode
   local config = {
-    tools = "copilot",
+    tools = DEFAULT_TOOLS,
     remember_as_sticky = false,
   }
 
@@ -43,6 +48,22 @@ local function ask_with_caveman()
   end
 
   prompt_and_ask("Copilot Caveman Task: ", with_caveman(config))
+end
+
+local function ask_with_shell()
+  prompt_and_ask("Copilot Shell Task: ", {
+    tools = SHELL_TOOLS,
+    trusted_tools = DEFAULT_TOOLS,
+    remember_as_sticky = false,
+  })
+end
+
+local function ask_with_edit()
+  prompt_and_ask("Copilot Edit Task: ", {
+    tools = EDIT_TOOLS,
+    trusted_tools = DEFAULT_TOOLS,
+    remember_as_sticky = false,
+  })
 end
 
 -- Keep chat continuation helpers together: they reuse the active chat buffer
@@ -183,11 +204,23 @@ return {
         "<leader>at",
         function()
           prompt_and_ask("Copilot Task: ", {
-            tools = "copilot",
+            tools = DEFAULT_TOOLS,
             remember_as_sticky = false,
           })
         end,
         desc = "Copilot Task",
+        mode = { "n", "x" },
+      },
+      {
+        "<leader>ab",
+        ask_with_shell,
+        desc = "Copilot Task (Shell)",
+        mode = { "n", "x" },
+      },
+      {
+        "<leader>ae",
+        ask_with_edit,
+        desc = "Copilot Task (Edit)",
         mode = { "n", "x" },
       },
       {
@@ -234,8 +267,11 @@ return {
     opts = function(_, opts)
       -- Preserve the existing chat UX while layering local defaults.
       opts = opts or {}
-      opts.model = "gpt-5.6-sol"
-      opts.trusted_tools = { "file", "glob", "grep", "edit" }
+      opts.model = "gpt-5.6-terra"
+      opts.tools = DEFAULT_TOOLS
+      opts.system_prompt = vim.trim((opts.system_prompt or "") .. "\n\n" .. runtime.SYSTEM_PROMPT)
+      opts.trusted_tools = DEFAULT_TOOLS
+      opts.remember_as_sticky = false
       opts.chat_autocomplete = false
       opts.mappings = vim.tbl_deep_extend("force", opts.mappings or {}, {
         submit_prompt = {
@@ -247,6 +283,7 @@ return {
     config = function(_, opts)
       -- Extra integrations are initialized after the base plugin setup.
       require("CopilotChat").setup(opts)
+      runtime.patch_config()
       require("copilotchat_pretty").setup()
       require("copilotchat_history").setup()
     end,

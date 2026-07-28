@@ -105,6 +105,75 @@ function M.pretty_json_string(text)
   return M.pretty_json_value(decoded)
 end
 
+local function truncate(text, max_len)
+  if type(text) ~= "string" or #text <= max_len then
+    return text
+  end
+
+  return text:sub(1, max_len - 3) .. "..."
+end
+
+local function truncate_middle(text, max_len)
+  if type(text) ~= "string" or #text <= max_len then
+    return text
+  end
+
+  local keep_left = math.floor((max_len - 3) / 2)
+  local keep_right = max_len - 3 - keep_left
+  return text:sub(1, keep_left) .. "..." .. text:sub(-keep_right)
+end
+
+local function compact_path(path)
+  if type(path) ~= "string" then
+    return path
+  end
+
+  local home = vim.uv.os_homedir()
+  if home and path:find(home, 1, true) == 1 then
+    path = "~" .. path:sub(#home + 1)
+  end
+
+  return truncate_middle(path, 96)
+end
+
+local function summarize_decoded_value(value)
+  if type(value) ~= "table" then
+    return nil
+  end
+
+  if type(value.command) == "string" then
+    return "command: " .. truncate(value.command:gsub("%s+", " "), 96)
+  end
+
+  if type(value.path) == "string" then
+    return "path: " .. compact_path(value.path)
+  end
+
+  if type(value.pattern) == "string" then
+    return "pattern: " .. value.pattern
+  end
+
+  if type(value.target) == "string" then
+    return "target: " .. value.target
+  end
+
+  if type(value.filename) == "string" then
+    return "file: " .. compact_path(value.filename)
+  end
+
+  if type(value.url) == "string" then
+    return "url: " .. truncate_middle(value.url, 96)
+  end
+
+  if type(value.scope) == "string" then
+    return "scope: " .. value.scope
+  end
+
+  return nil
+end
+
+M.summarize_tool_arguments = summarize_decoded_value
+
 function M.patch_prompts()
   local prompts = require("CopilotChat.prompts")
   if prompts._pretty_json_patched then
@@ -134,6 +203,23 @@ function M.patch_chat_render()
     local original_json_decode = utils.json_decode
 
     utils.json_decode = function(body)
+      local ok, decoded = pcall(json_decode, body)
+      if ok then
+        local summary = summarize_decoded_value(decoded)
+        if summary then
+          return {
+            __copilotchat_pretty_json = summary,
+          }
+        end
+
+        local pretty = M.pretty_json_value(decoded)
+        if pretty then
+          return {
+            __copilotchat_pretty_json = pretty,
+          }
+        end
+      end
+
       local pretty = M.pretty_json_string(body)
       if pretty then
         return {
