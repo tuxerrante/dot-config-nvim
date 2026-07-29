@@ -1,5 +1,33 @@
 return {
   {
+    "neovim/nvim-lspconfig",
+    optional = true,
+    opts = function(_, opts)
+      opts.servers = opts.servers or {}
+      if opts.servers.gopls == false then
+        return
+      end
+
+      opts.servers.gopls = vim.tbl_deep_extend("force", opts.servers.gopls or {}, {
+        settings = {
+          gopls = {
+            gofumpt = true,
+            completeUnimported = true,
+            usePlaceholders = true,
+            staticcheck = true,
+            analyses = {
+              nilness = true,
+              unusedparams = true,
+              unusedwrite = true,
+              useany = true,
+            },
+            directoryFilters = { "-.git", "-.vscode", "-.idea", "-.vscode-test", "-node_modules" },
+          },
+        },
+      })
+    end,
+  },
+  {
     "mfussenegger/nvim-lint",
     optional = true,
     init = function()

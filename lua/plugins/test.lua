@@ -4,8 +4,11 @@ return {
     optional = true,
     opts = function(_, opts)
       local progress = require("progress_notifier")
+      local go_test_runner = vim.fn.executable("gotestsum") == 1 and "gotestsum" or "go"
+
       opts.adapters = opts.adapters or {}
       opts.adapters["neotest-golang"] = vim.tbl_deep_extend("force", opts.adapters["neotest-golang"] or {}, {
+        runner = go_test_runner,
         warn_test_name_dupes = false,
       })
 
