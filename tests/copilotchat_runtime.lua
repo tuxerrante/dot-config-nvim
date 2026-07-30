@@ -15,6 +15,14 @@ local function assert_truthy(value, message)
   end
 end
 
+local function assert_contains(list, value, message)
+  assert_truthy(vim.tbl_contains(list, value), message or ("expected list to contain " .. value))
+end
+
+local function assert_not_contains(list, value, message)
+  assert_truthy(not vim.tbl_contains(list, value), message or ("expected list to exclude " .. value))
+end
+
 local function with_stub(tbl, key, value, fn)
   local original = tbl[key]
   tbl[key] = value
@@ -63,9 +71,40 @@ local function setup_copilotchat()
   return require("CopilotChat.config"), chat
 end
 
+local function test_tool_sets_keep_shell_policy_explicit()
+  assert_contains(runtime.DEFAULT_TOOLS, "grep", "default tools should keep the structured grep tool available")
+  assert_not_contains(runtime.DEFAULT_TOOLS, "bash_safe", "default tools should not expose bash_safe implicitly")
+  assert_contains(runtime.DEFAULT_TRUSTED_TOOLS, "grep", "default trusted tools should keep workspace grep trusted")
+  assert_not_contains(runtime.DEFAULT_TRUSTED_TOOLS, "bash_safe", "default trusted tools should not trust bash_safe implicitly")
+
+  assert_contains(runtime.EDIT_TOOLS, "edit", "edit workflow should expose edit")
+  assert_not_contains(runtime.EDIT_TOOLS, "bash_safe", "edit workflow should not expose bash_safe implicitly")
+  assert_not_contains(runtime.EDIT_TRUSTED_TOOLS, "edit", "edit workflow should still require approval for edits")
+  assert_not_contains(runtime.EDIT_TRUSTED_TOOLS, "bash_safe", "edit workflow should not trust bash_safe implicitly")
+
+  assert_contains(runtime.SHELL_TOOLS, "bash_safe", "shell workflow should expose bash_safe")
+  assert_contains(runtime.SHELL_TOOLS, "bash", "shell workflow should still expose unrestricted bash")
+  assert_contains(runtime.SHELL_TRUSTED_TOOLS, "bash_safe", "shell workflow should trust bash_safe")
+  assert_not_contains(runtime.SHELL_TRUSTED_TOOLS, "bash", "shell workflow should keep unrestricted bash gated")
+end
+
 local function test_readonly_shell_parser()
   local argv = assert(runtime.split_safe_command([[cat "foo bar.txt"]]))
   assert_equal(argv, { "cat", "foo bar.txt" }, "quoted readonly command should tokenize safely")
+
+  local trusted_grep = assert(runtime.split_safe_command(
+    [[grep -A25 'type CapacityReservationGroup struct' /Users/alessandroaffinito/go/pkg/mod/example/models.go]]
+  ))
+  assert_equal(
+    trusted_grep,
+    {
+      "grep",
+      "-A25",
+      "type CapacityReservationGroup struct",
+      "/Users/alessandroaffinito/go/pkg/mod/example/models.go",
+    },
+    "trusted grep command should allow quoted patterns and absolute paths"
+  )
 
   local ok, output = require("CopilotChat.prompts").execute_tool_call("bash_ro", {
     command = "pwd",
@@ -274,6 +313,7 @@ function M.run()
     local ok, err = xpcall(function()
       setup_copilotchat()
 
+      test_tool_sets_keep_shell_policy_explicit()
       test_readonly_shell_parser()
       test_readonly_shell_uses_async_system_wrapper()
       test_rejected_git_command_is_safe_in_fast_event()

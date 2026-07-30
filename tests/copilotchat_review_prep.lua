@@ -295,8 +295,8 @@ local function test_build_prompt()
         },
       },
       pr_conversations = {
-        source = "github-review-threads",
-        fetched_via = "graphql",
+        source = "github-pr-discussion",
+        fetched_via = "graphql+issuecomment",
         unresolved_count = 1,
         resolved_count = 1,
         unresolved = {
@@ -309,6 +309,13 @@ local function test_build_prompt()
           {
             label = "tests/test_copilot_prep_review.py:210",
             summary = "Earlier request for a stale-cache test was already addressed.",
+          },
+        },
+        top_level_count = 1,
+        top_level = {
+          {
+            author = "reviewer-six",
+            summary = "Earlier top-level PR discussion explained why prior general comments still matter for this prompt.",
           },
         },
       },
@@ -334,8 +341,18 @@ local function test_build_prompt()
     )
     assert_match(
       prompt,
-      "Only inline review threads are preloaded here; general PR conversation, standalone review bodies, and non-review issue comments are still excluded.",
+      "Inline review threads are prioritized here, with a small set of high-signal top-level PR issue comments added as secondary context; standalone review bodies and the rest of the PR conversation are still excluded.",
       "prompt should describe the remaining PR conversation limitation precisely"
+    )
+    assert_match(
+      prompt,
+      "Top-level PR comments worth keeping in mind:",
+      "prompt should render the secondary top-level PR discussion heading"
+    )
+    assert_match(
+      prompt,
+      "reviewer-six [top-level]: Earlier top-level PR discussion explained why prior general comments still matter for this prompt.",
+      "prompt should summarize selected top-level PR comments without dumping raw formatting"
     )
     assert_match(prompt, "Rules and important docs", "prompt should include rules section")
     assert_match(prompt, "`make test-go` (Makefile)", "prompt should include quality gates")
@@ -356,8 +373,8 @@ local function test_build_prompt_caps_review_discussion_and_marks_cached_snapsho
         files = {},
       },
       pr_conversations = {
-        source = "github-review-threads",
-        fetched_via = "graphql",
+        source = "github-pr-discussion",
+        fetched_via = "graphql+issuecomment",
         unresolved_count = 5,
         resolved_count = 3,
         unresolved = {
@@ -372,6 +389,12 @@ local function test_build_prompt_caps_review_discussion_and_marks_cached_snapsho
           { label = "tests/b.lua:70", summary = "Resolved thread two." },
           { label = "tests/c.lua:80", summary = "Resolved thread three." },
         },
+        top_level_count = 3,
+        top_level = {
+          { author = "reviewer-a", summary = "Top-level PR comment one." },
+          { author = "reviewer-b", summary = "Top-level PR comment two." },
+          { author = "reviewer-c", summary = "Top-level PR comment three." },
+        },
       },
       caveats = {},
     })
@@ -385,9 +408,17 @@ local function test_build_prompt_caps_review_discussion_and_marks_cached_snapsho
     assert_match(prompt, "tests/b.lua:70", "prompt should include the second resolved thread")
     assert_not_match(prompt, "tests/c.lua:80", "prompt should cap resolved thread rendering")
     assert_match(prompt, "... plus 1 more resolved thread(s)", "prompt should summarize omitted resolved threads")
+    assert_match(prompt, "reviewer-a [top-level]: Top-level PR comment one.", "prompt should include the first top-level PR comment")
+    assert_match(prompt, "reviewer-b [top-level]: Top-level PR comment two.", "prompt should include the second top-level PR comment")
+    assert_not_match(prompt, "reviewer-c [top-level]: Top-level PR comment three.", "prompt should cap top-level PR comment rendering")
     assert_match(
       prompt,
-      "Review thread snapshot may be stale because this bundle came from cache. Use `:CopilotPrepReview!` to refresh.",
+      "... plus 1 more high-signal top-level PR comment(s)",
+      "prompt should summarize omitted top-level PR comments"
+    )
+    assert_match(
+      prompt,
+      "Review discussion snapshot may be stale because this bundle came from cache. Use `:CopilotPrepReview!` to refresh.",
       "prompt should call out cached conversation snapshots explicitly"
     )
   end)

@@ -1,8 +1,11 @@
 -- Shared prompt helpers for one-shot CopilotChat actions.
 local runtime = require("copilotchat_runtime")
 local DEFAULT_TOOLS = runtime.DEFAULT_TOOLS
+local DEFAULT_TRUSTED_TOOLS = runtime.DEFAULT_TRUSTED_TOOLS
 local EDIT_TOOLS = runtime.EDIT_TOOLS
+local EDIT_TRUSTED_TOOLS = runtime.EDIT_TRUSTED_TOOLS
 local SHELL_TOOLS = runtime.SHELL_TOOLS
+local SHELL_TRUSTED_TOOLS = runtime.SHELL_TRUSTED_TOOLS
 
 local function prompt_and_ask(prompt, config)
   vim.ui.input({ prompt = prompt }, function(input)
@@ -15,6 +18,7 @@ end
 local function ask_with_selection()
   prompt_and_ask("Copilot Selection Task: ", {
     tools = DEFAULT_TOOLS,
+    trusted_tools = DEFAULT_TRUSTED_TOOLS,
     resources = "selection",
     remember_as_sticky = false,
   })
@@ -40,6 +44,7 @@ local function ask_with_caveman()
   local mode = vim.api.nvim_get_mode().mode
   local config = {
     tools = DEFAULT_TOOLS,
+    trusted_tools = DEFAULT_TRUSTED_TOOLS,
     remember_as_sticky = false,
   }
 
@@ -53,7 +58,7 @@ end
 local function ask_with_shell()
   prompt_and_ask("Copilot Shell Task: ", {
     tools = SHELL_TOOLS,
-    trusted_tools = DEFAULT_TOOLS,
+    trusted_tools = SHELL_TRUSTED_TOOLS,
     remember_as_sticky = false,
   })
 end
@@ -61,7 +66,7 @@ end
 local function ask_with_edit()
   prompt_and_ask("Copilot Edit Task: ", {
     tools = EDIT_TOOLS,
-    trusted_tools = DEFAULT_TOOLS,
+    trusted_tools = EDIT_TRUSTED_TOOLS,
     remember_as_sticky = false,
   })
 end
@@ -205,6 +210,7 @@ return {
         function()
           prompt_and_ask("Copilot Task: ", {
             tools = DEFAULT_TOOLS,
+            trusted_tools = DEFAULT_TRUSTED_TOOLS,
             remember_as_sticky = false,
           })
         end,
@@ -270,7 +276,7 @@ return {
       opts.model = "gpt-5.6-terra"
       opts.tools = DEFAULT_TOOLS
       opts.system_prompt = vim.trim((opts.system_prompt or "") .. "\n\n" .. runtime.SYSTEM_PROMPT)
-      opts.trusted_tools = DEFAULT_TOOLS
+      opts.trusted_tools = DEFAULT_TRUSTED_TOOLS
       opts.remember_as_sticky = false
       opts.chat_autocomplete = false
       opts.mappings = vim.tbl_deep_extend("force", opts.mappings or {}, {
@@ -286,6 +292,7 @@ return {
       runtime.patch_config()
       require("copilotchat_pretty").setup()
       require("copilotchat_history").setup()
+      require("copilotchat_review_prep").setup()
     end,
   },
   {

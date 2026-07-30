@@ -126,14 +126,18 @@ If `gh` is available and authenticated, the collector also fetches:
 
 - PR metadata
 - changed file paths
-- prioritized inline review threads and comments, with unresolved threads first and
-  up to 2 resolved threads kept only when they help avoid repeating already-settled asks
+- prioritized inline review threads, with unresolved threads first and up to 2
+  resolved threads kept only when they help avoid repeating already-settled asks
+- up to 2 high-signal top-level PR issue comments as secondary context after the
+  review-thread summary
 - related PRs discoverable from Jira keys in the PR
 
-Review-thread enrichment prefers GitHub GraphQL `reviewThreads` via `gh api graphql`.
-If `gh` is missing, unauthenticated, or GraphQL thread data is unavailable for the
-repo/PR, the collector degrades cleanly, omits the section, and records a caveat
-instead of pretending reviewer discussion was loaded.
+Conversation enrichment prefers GitHub GraphQL `reviewThreads` via
+`gh api graphql` for inline discussion and GitHub issue comments via
+`gh api repos/.../issues/.../comments` for top-level PR discussion. If `gh` is
+missing, unauthenticated, or either API is unavailable for the repo/PR, the
+collector degrades cleanly, keeps any discussion subset that did load, and
+records a caveat instead of pretending the full conversation was loaded.
 
 If Jira refs are present, the collector now tries Jira auth/config in this order:
 
@@ -169,7 +173,8 @@ prompt containing:
 - PR facts
 - changed files
 - PR diff summary only; the checked-out local worktree is the source of truth for exact hunks
-- prior review discussion, kept compact and summary-first
+- prior review discussion, kept compact and summary-first, with inline threads
+  first and high-signal top-level PR comments only as secondary context
 - rules and important docs
 - domain context
 - quality gates / validation commands
@@ -192,9 +197,9 @@ The current TTL is 15 minutes per `(repo-root, pr-url)` pair. For
 `CopilotPrepReview`, the repo root used for cache identity is the selected PR
 worktree root.
 
-If a cached bundle is reused, the prompt now calls out that the review-thread
-snapshot may be stale. Use `:CopilotPrepReview!` when you want a fresh
-conversation fetch immediately.
+If a cached bundle is reused, the prompt now calls out that the review
+discussion snapshot may be stale. Use `:CopilotPrepReview!` when you want a
+fresh conversation fetch immediately.
 
 ## Limitations
 
@@ -208,5 +213,6 @@ conversation fetch immediately.
   Jira user identity
 - domain-context matching is heuristic; if nothing relevant matches, the prompt
   says so instead of pretending context was found
-- only inline review threads are preloaded here; general PR conversation,
-  standalone review bodies, and non-review issue comments are still excluded
+- inline review threads are prioritized here, with a small set of high-signal
+  top-level PR issue comments added as secondary context; standalone review
+  bodies and the rest of the PR conversation are still excluded

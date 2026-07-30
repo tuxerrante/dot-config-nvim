@@ -1,13 +1,31 @@
 local M = {}
 
-M.DEFAULT_TOOLS = { "buffer", "selection", "file", "glob", "grep", "gitdiff", "bash_safe" }
-M.EDIT_TOOLS = { "buffer", "selection", "file", "glob", "grep", "gitdiff", "bash_safe", "edit" }
-M.SHELL_TOOLS = { "buffer", "selection", "file", "glob", "grep", "gitdiff", "bash_safe", "bash", "edit" }
+local function clone_list(list)
+  return vim.deepcopy(list)
+end
+
+local function append_tools(base, extras)
+  local merged = clone_list(base)
+  vim.list_extend(merged, clone_list(extras))
+  return merged
+end
+
+-- Keep structured workspace tools separate from shell-backed tools so
+-- "available" and "trusted" policy stays explicit.
+local WORKSPACE_TOOLS = { "buffer", "selection", "file", "glob", "grep", "gitdiff" }
+
+M.DEFAULT_TOOLS = clone_list(WORKSPACE_TOOLS)
+M.DEFAULT_TRUSTED_TOOLS = clone_list(WORKSPACE_TOOLS)
+M.EDIT_TOOLS = append_tools(WORKSPACE_TOOLS, { "edit" })
+M.EDIT_TRUSTED_TOOLS = clone_list(M.DEFAULT_TRUSTED_TOOLS)
+M.SHELL_TOOLS = append_tools(WORKSPACE_TOOLS, { "bash_safe", "bash", "edit" })
+M.SHELL_TRUSTED_TOOLS = append_tools(WORKSPACE_TOOLS, { "bash_safe" })
 
 M.SYSTEM_PROMPT = table.concat({
   "Prefer concise answers and targeted evidence.",
   "When inspecting code, summarize or quote only the smallest relevant snippet instead of pasting entire files.",
-  "Prefer repo-safe tools for inspection and validation. Use file, glob, grep, gitdiff, and bash_safe before using unrestricted shell.",
+  "Use file, glob, grep, and gitdiff for workspace inspection.",
+  "The grep tool is workspace-scoped. Use bash_safe only in the explicit shell workflow when the structured workspace tools cannot express a read-only command.",
   "Only use edit when the user asked for changes or when the workflow is explicitly edit-enabled.",
 }, " ")
 
@@ -357,7 +375,7 @@ local function patch_bash_safe(config)
 
   local safe_function = {
     group = bash.group,
-    description = "Executes a constrained repo-safe command without invoking a shell. Supports read/list commands, selected git inspection commands, `go test`, and selected validation/test `make` targets.",
+    description = "Executes a constrained read-only command without invoking a shell. Reserve it for explicit shell workflows when workspace tools cannot express the inspection.",
     schema = bash.schema,
     trusted = true,
     resolve = function(input, source)

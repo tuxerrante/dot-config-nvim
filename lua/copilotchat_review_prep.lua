@@ -280,6 +280,12 @@ local function summarize_conversation(item, status)
   return bullet(string.format("%s [%s]: %s", label, status, summary))
 end
 
+local function summarize_top_level_comment(item)
+  local author = item.author or "unknown commenter"
+  local summary = single_line(item.summary) or "discussion summary unavailable"
+  return bullet(string.format("%s [top-level]: %s", author, summary))
+end
+
 local function summarize_pr_conversations(conversations, cache_hit)
   if type(conversations) ~= "table" then
     return {}
@@ -287,19 +293,28 @@ local function summarize_pr_conversations(conversations, cache_hit)
 
   local unresolved = conversations.unresolved or {}
   local resolved = conversations.resolved or {}
+  local top_level = conversations.top_level or {}
   local unresolved_count = tonumber(conversations.unresolved_count) or #unresolved
   local resolved_count = tonumber(conversations.resolved_count) or #resolved
-  if unresolved_count == 0 and resolved_count == 0 and #unresolved == 0 and #resolved == 0 then
+  local top_level_count = tonumber(conversations.top_level_count) or #top_level
+  if unresolved_count == 0 and resolved_count == 0 and top_level_count == 0 and #unresolved == 0 and #resolved == 0 then
     return {}
   end
 
-  local rows = {
-    bullet(string.format(
+  local has_threads = unresolved_count > 0 or resolved_count > 0 or #unresolved > 0 or #resolved > 0
+  local rows = {}
+  if has_threads then
+    table.insert(rows, bullet(string.format(
       "%d unresolved thread(s) prioritized; %d resolved thread(s) included to avoid repeating settled asks.",
       unresolved_count,
       math.min(resolved_count, 2)
-    )),
-  }
+    )))
+  elseif top_level_count > 0 then
+    table.insert(
+      rows,
+      bullet(string.format("No inline review threads were kept; %d high-signal top-level PR comment(s) added as fallback context.", top_level_count))
+    )
+  end
 
   local shown_unresolved = math.min(#unresolved, 4)
   for index = 1, shown_unresolved do
@@ -320,10 +335,24 @@ local function summarize_pr_conversations(conversations, cache_hit)
     end
   end
 
+  local shown_top_level = math.min(#top_level, 2)
+  if shown_top_level > 0 then
+    if has_threads then
+      table.insert(rows, bullet(string.format("%d high-signal top-level PR comment(s) added as secondary context.", top_level_count)))
+    end
+    table.insert(rows, bullet("Top-level PR comments worth keeping in mind:"))
+    for index = 1, shown_top_level do
+      table.insert(rows, summarize_top_level_comment(top_level[index]))
+    end
+    if top_level_count > shown_top_level then
+      table.insert(rows, bullet(string.format("... plus %d more high-signal top-level PR comment(s)", top_level_count - shown_top_level)))
+    end
+  end
+
   if cache_hit then
     table.insert(
       rows,
-      bullet("Review thread snapshot may be stale because this bundle came from cache. Use `:CopilotPrepReview!` to refresh.")
+      bullet("Review discussion snapshot may be stale because this bundle came from cache. Use `:CopilotPrepReview!` to refresh.")
     )
   end
 
@@ -456,7 +485,7 @@ function M.build_prompt(bundle)
     bullet("Honor the listed rules/docs before making repo-specific claims."),
     bullet("Treat degraded or unavailable sources as constraints, not hidden assumptions."),
     bullet(
-      "Only inline review threads are preloaded here; general PR conversation, standalone review bodies, and non-review issue comments are still excluded."
+      "Inline review threads are prioritized here, with a small set of high-signal top-level PR issue comments added as secondary context; standalone review bodies and the rest of the PR conversation are still excluded."
     ),
     bullet("If you need more context, fetch the next specific file, command, or PR and say why."),
   }

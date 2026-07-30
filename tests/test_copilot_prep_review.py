@@ -338,10 +338,39 @@ class PrConversationCollectionTests(unittest.TestCase):
                 }
             }
         }
+        issue_comments_payload = [
+            {
+                "user": {"login": "reviewer-top"},
+                "body": "Please include the earlier top-level PR context too because some reviewer rationale only lived in issuecomment discussion.",
+                "html_url": "https://github.com/Owner/Repo/pull/123#issuecomment-1",
+            },
+            {
+                "user": {"login": "author-one"},
+                "body": "Updated docs and tests.",
+                "html_url": "https://github.com/Owner/Repo/pull/123#issuecomment-2",
+            },
+            {
+                "user": {"login": "reviewer-context"},
+                "body": "The limitation statement still matters: keep standalone review bodies excluded, but carry over the high-signal top-level PR comments that explain prior context and cache expectations.",
+                "html_url": "https://github.com/Owner/Repo/pull/123#issuecomment-3",
+            },
+            {
+                "user": {"login": "reviewer-extra"},
+                "body": "One more top-level reminder to keep the prompt compact, summary-first, and explicit about auth or availability caveats.",
+                "html_url": "https://github.com/Owner/Repo/pull/123#issuecomment-4",
+            },
+            {
+                "user": {"login": "github-actions[bot]"},
+                "body": "Automated review: LGTM.",
+                "html_url": "https://github.com/Owner/Repo/pull/123#issuecomment-5",
+            },
+        ]
 
         def fake_run(argv: list[str], cwd: str | None = None, timeout: int = 20) -> dict[str, object]:
             if argv[:3] == ["gh", "api", "graphql"]:
                 return {"ok": True, "code": 0, "stdout": json.dumps(graphql_payload), "stderr": ""}
+            if argv[:2] == ["gh", "api"] and "issues/123/comments" in argv[2]:
+                return {"ok": True, "code": 0, "stdout": json.dumps(issue_comments_payload), "stderr": ""}
             raise AssertionError(f"unexpected command: {argv!r}")
 
         with mock.patch.object(copilot_prep_review, "command_exists", return_value=True), mock.patch.object(
@@ -350,12 +379,14 @@ class PrConversationCollectionTests(unittest.TestCase):
             conversations, caveats = copilot_prep_review.collect_pr_conversations(self.pr_meta())
 
         self.assertEqual(caveats, [])
-        self.assertEqual(conversations["source"], "github-review-threads")
-        self.assertEqual(conversations["fetched_via"], "graphql")
+        self.assertEqual(conversations["source"], "github-pr-discussion")
+        self.assertEqual(conversations["fetched_via"], "graphql+issuecomment")
         self.assertEqual(conversations["unresolved_count"], 2)
         self.assertEqual(conversations["resolved_count"], 3)
         self.assertEqual(len(conversations["unresolved"]), 2)
         self.assertEqual(len(conversations["resolved"]), 2)
+        self.assertEqual(conversations["top_level_count"], 3)
+        self.assertEqual(len(conversations["top_level"]), 2)
         self.assertEqual(
             [item["label"] for item in conversations["unresolved"]],
             [
@@ -370,10 +401,20 @@ class PrConversationCollectionTests(unittest.TestCase):
                 "docs/copilotchat-review-prep.md:198",
             ],
         )
+        self.assertEqual(
+            [item["author"] for item in conversations["top_level"]],
+            [
+                "reviewer-context",
+                "reviewer-extra",
+            ],
+        )
         all_summaries = " ".join(item["summary"] for item in conversations["unresolved"] + conversations["resolved"])
         self.assertNotIn("Automated review: LGTM.", all_summaries)
         self.assertIn("summary-first", all_summaries)
         self.assertIn("stale-cache rendering assertion", all_summaries)
+        top_level_summaries = " ".join(item["summary"] for item in conversations["top_level"])
+        self.assertNotIn("Updated docs and tests.", top_level_summaries)
+        self.assertIn("standalone review bodies excluded", top_level_summaries)
 
     def test_degrades_cleanly_when_github_thread_fetch_fails(self) -> None:
         with mock.patch.object(copilot_prep_review, "command_exists", return_value=True), mock.patch.object(
@@ -383,15 +424,19 @@ class PrConversationCollectionTests(unittest.TestCase):
         ):
             conversations, caveats = copilot_prep_review.collect_pr_conversations(self.pr_meta())
 
-        self.assertEqual(conversations["source"], "github-review-threads")
-        self.assertEqual(conversations["fetched_via"], "graphql")
+        self.assertEqual(conversations["source"], "github-pr-discussion")
+        self.assertEqual(conversations["fetched_via"], "graphql+issuecomment")
         self.assertEqual(conversations["unresolved"], [])
         self.assertEqual(conversations["resolved"], [])
         self.assertEqual(conversations["unresolved_count"], 0)
         self.assertEqual(conversations["resolved_count"], 0)
-        self.assertEqual(len(caveats), 1)
+        self.assertEqual(conversations["top_level"], [])
+        self.assertEqual(conversations["top_level_count"], 0)
+        self.assertEqual(len(caveats), 2)
         self.assertIn("PR review thread context unavailable", caveats[0])
         self.assertIn("HTTP 401: authentication required", caveats[0])
+        self.assertIn("Top-level PR comment context unavailable", caveats[1])
+        self.assertIn("HTTP 401: authentication required", caveats[1])
 
 
 if __name__ == "__main__":

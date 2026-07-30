@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
-SCRIPT_VERSION = 4
+SCRIPT_VERSION = 5
 DEFAULT_TTL_SECONDS = 15 * 60
 ROOT_DOCS = ("AGENTS.md", "CLAUDE.md", "GEMINI.md", "README.md", "CONTRIBUTING.md")
 GENERIC_RULE_NAMES = {
@@ -68,12 +68,52 @@ STOP_WORDS = {
 }
 PR_CONVERSATION_MAX_UNRESOLVED = 4
 PR_CONVERSATION_MAX_RESOLVED = 2
+PR_CONVERSATION_MAX_TOP_LEVEL = 2
 LOW_SIGNAL_BOT_MESSAGES = {
     "approved",
     "automated review lgtm",
     "lgtm",
     "looks good to me",
 }
+LOW_SIGNAL_HUMAN_PREFIXES = (
+    "ack",
+    "addressed",
+    "done",
+    "fixed",
+    "lgtm",
+    "merged main",
+    "merged master",
+    "pushed",
+    "ptal",
+    "rebased",
+    "resolved",
+    "synced",
+    "thanks",
+    "thank you",
+    "updated",
+)
+TOP_LEVEL_COMMENT_HINTS = (
+    "auth",
+    "availability",
+    "because",
+    "blocked",
+    "cache",
+    "caveat",
+    "context",
+    "conversation",
+    "docs",
+    "documentation",
+    "issuecomment",
+    "limitation",
+    "missing",
+    "regression",
+    "review",
+    "risk",
+    "stale",
+    "test",
+    "thread",
+    "why",
+)
 
 
 def now_epoch() -> int:
@@ -991,14 +1031,16 @@ def search_related_prs(pr_meta: dict[str, Any]) -> tuple[list[dict[str, Any]], l
 
 def empty_pr_conversations() -> dict[str, Any]:
     return {
-        "source": "github-review-threads",
-        "fetched_via": "graphql",
+        "source": "github-pr-discussion",
+        "fetched_via": "graphql+issuecomment",
         "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "total_threads": 0,
         "unresolved_count": 0,
         "resolved_count": 0,
         "unresolved": [],
         "resolved": [],
+        "top_level_count": 0,
+        "top_level": [],
     }
 
 
@@ -1012,6 +1054,18 @@ def is_bot_login(login: str | None) -> bool:
 def is_low_signal_bot_message(text: str) -> bool:
     lowered = re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
     return lowered in LOW_SIGNAL_BOT_MESSAGES
+
+
+def is_low_signal_human_message(text: str) -> bool:
+    lowered = compact_text(text, max_chars=160).lower()
+    if not lowered:
+        return True
+    if len(lowered) > 80:
+        return False
+    return any(
+        lowered == prefix or lowered.startswith(prefix + " ") or lowered.startswith(prefix + ":")
+        for prefix in LOW_SIGNAL_HUMAN_PREFIXES
+    )
 
 
 def review_thread_label(path: str | None, start_line: int | None, line: int | None) -> str:
@@ -1082,11 +1136,14 @@ def summarize_review_thread(thread: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def collect_pr_conversations(pr_meta: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    conversations = empty_pr_conversations()
-    if not command_exists("gh"):
-        return conversations, ["PR review thread context unavailable: `gh` CLI is not installed."]
-
+def collect_review_threads(pr_meta: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    threads = {
+        "total_threads": 0,
+        "unresolved_count": 0,
+        "resolved_count": 0,
+        "unresolved": [],
+        "resolved": [],
+    }
     query = """
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -1131,12 +1188,12 @@ query($owner: String!, $repo: String!, $number: Int!) {
         timeout=30,
     )
     if not out["ok"]:
-        return conversations, [f"PR review thread context unavailable: {out['stderr'].strip() or 'gh api graphql failed'}."]
+        return threads, [f"PR review thread context unavailable: {out['stderr'].strip() or 'gh api graphql failed'}."]
 
     try:
         payload = json.loads(out["stdout"])
     except json.JSONDecodeError:
-        return conversations, ["PR review thread context unavailable: GitHub returned invalid JSON for review threads."]
+        return threads, ["PR review thread context unavailable: GitHub returned invalid JSON for review threads."]
 
     raw_threads = (
         ((((payload.get("data") or {}).get("repository") or {}).get("pullRequest") or {}).get("reviewThreads") or {}).get(
@@ -1160,7 +1217,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
     for item in summarized:
         item.pop("_ordinal", None)
 
-    conversations.update(
+    threads.update(
         {
             "total_threads": len(summarized),
             "unresolved_count": len(unresolved),
@@ -1169,7 +1226,112 @@ query($owner: String!, $repo: String!, $number: Int!) {
             "resolved": resolved[:PR_CONVERSATION_MAX_RESOLVED],
         }
     )
-    return conversations, []
+    return threads, []
+
+
+def top_level_comment_score(author: str | None, summary: str, pr_author: str | None, raw_body: str) -> int:
+    score = 0
+    if author and pr_author:
+        score += 35 if author != pr_author else 10
+    elif author:
+        score += 20
+
+    lowered = summary.lower()
+    if any(hint in lowered for hint in TOP_LEVEL_COMMENT_HINTS):
+        score += 15
+    if len(summary) >= 140:
+        score += 10
+    elif len(summary) >= 80:
+        score += 5
+    if normalize_text(raw_body).count("\n") >= 2 or raw_body.count(".") >= 2:
+        score += 5
+    if re.search(r"`[^`]+`|[A-Za-z0-9_./-]+\.(?:go|lua|md|py|ts|tsx|js|jsx|json|yaml|yml)", raw_body):
+        score += 5
+    if is_bot_login(author):
+        score -= 15
+    return score
+
+
+def summarize_issue_comment(comment: dict[str, Any], pr_author: str | None) -> dict[str, Any] | None:
+    author = ((comment.get("user") or {}).get("login")) or ((comment.get("author") or {}).get("login"))
+    raw_body = comment.get("body") or comment.get("bodyText") or ""
+    summary = compact_text(raw_body, max_chars=200)
+    if not summary:
+        return None
+    if is_bot_login(author) and is_low_signal_bot_message(summary):
+        return None
+    if not is_bot_login(author) and is_low_signal_human_message(summary):
+        return None
+
+    score = top_level_comment_score(author, summary, pr_author, raw_body)
+    if score < 20:
+        return None
+
+    return {
+        "author": author,
+        "summary": summary,
+        "url": comment.get("html_url") or comment.get("url"),
+        "score": score,
+        "is_bot": is_bot_login(author),
+        "is_pr_author": bool(author and pr_author and author == pr_author),
+    }
+
+
+def collect_top_level_pr_comments(pr_meta: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    out = run_command(
+        [
+            "gh",
+            "api",
+            f"repos/{pr_meta['owner']}/{pr_meta['repo']}/issues/{pr_meta['number']}/comments?per_page=40",
+        ],
+        timeout=30,
+    )
+    if not out["ok"]:
+        return {"top_level_count": 0, "top_level": []}, [
+            f"Top-level PR comment context unavailable: {out['stderr'].strip() or 'gh api issue comments failed'}."
+        ]
+
+    try:
+        payload = json.loads(out["stdout"])
+    except json.JSONDecodeError:
+        return {"top_level_count": 0, "top_level": []}, [
+            "Top-level PR comment context unavailable: GitHub returned invalid JSON for issue comments."
+        ]
+    if not isinstance(payload, list):
+        return {"top_level_count": 0, "top_level": []}, [
+            "Top-level PR comment context unavailable: GitHub returned an unexpected payload for issue comments."
+        ]
+
+    summarized: list[dict[str, Any]] = []
+    for index, raw_comment in enumerate(payload):
+        item = summarize_issue_comment(raw_comment, pr_meta.get("author"))
+        if item is not None:
+            item["_ordinal"] = index
+            summarized.append(item)
+
+    summarized.sort(key=lambda item: (-item["score"], item["is_bot"], item["is_pr_author"], -item["_ordinal"]))
+    for item in summarized:
+        item.pop("_ordinal", None)
+        item.pop("score", None)
+        item.pop("is_bot", None)
+        item.pop("is_pr_author", None)
+
+    return {
+        "top_level_count": len(summarized),
+        "top_level": summarized[:PR_CONVERSATION_MAX_TOP_LEVEL],
+    }, []
+
+
+def collect_pr_conversations(pr_meta: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    conversations = empty_pr_conversations()
+    if not command_exists("gh"):
+        return conversations, ["PR discussion context unavailable: `gh` CLI is not installed."]
+
+    threads, thread_caveats = collect_review_threads(pr_meta)
+    top_level, top_level_caveats = collect_top_level_pr_comments(pr_meta)
+    conversations.update(threads)
+    conversations.update(top_level)
+    return conversations, thread_caveats + top_level_caveats
 
 
 def jira_header_candidates(config: dict[str, Any]) -> list[dict[str, str]]:
