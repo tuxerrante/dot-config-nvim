@@ -61,8 +61,22 @@ local DISALLOWED_GO_TEST_FLAGS = {
   ["-o"] = true,
 }
 
+local SAFE_MAKE_TARGETS = {
+  fmt = true,
+  ["go-verify"] = true,
+  ["lint-go"] = true,
+  ["test-go"] = true,
+  ["unit-test-go"] = true,
+  ["validate-gh-actions"] = true,
+  ["validate-go"] = true,
+  ["validate-go-action"] = true,
+  ["validate-imports"] = true,
+}
+
 local function format_list(list)
-  return table.concat(vim.fn.sort(vim.tbl_keys(list)), ", ")
+  local keys = vim.tbl_keys(list)
+  table.sort(keys)
+  return table.concat(keys, ", ")
 end
 
 local function tokenize_command(command)
@@ -88,6 +102,7 @@ local function tokenize_command(command)
 
   for i = 1, #text do
     local char = text:sub(i, i)
+    local next_char = text:sub(i + 1, i + 1)
 
     if escaping then
       table.insert(current, char)
@@ -108,6 +123,12 @@ local function tokenize_command(command)
       end
     elseif char == "'" or char == '"' then
       quote = char
+    elseif char == "$" and (next_char == "(" or next_char == "{" or next_char:match("[%w_]")) then
+      return nil, "Readonly shell does not invoke a shell, so variable or command expansion is unsupported."
+    elseif char == "`" then
+      return nil, "Readonly shell does not invoke a shell, so backtick substitution is unsupported."
+    elseif char == "|" or char == "&" or char == ";" or char == "<" or char == ">" then
+      return nil, "Readonly shell only supports a single direct command without shell pipes, redirection, or separators."
     elseif char == "\\" then
       escaping = true
     elseif char:match("%s") then
@@ -225,11 +246,12 @@ local function validate_go_command(argv)
 end
 
 local function validate_make_command(argv)
-  if #argv == 2 and argv[2] == "fmt" then
+  if #argv == 2 and SAFE_MAKE_TARGETS[argv[2] or ""] then
     return argv
   end
 
-  return nil, "Trusted repo shell only allows `make fmt`."
+  return nil,
+    "Trusted repo shell only allows `make fmt`, `make go-verify`, `make lint-go`, `make test-go`, `make unit-test-go`, `make validate-gh-actions`, `make validate-go`, `make validate-go-action`, and `make validate-imports`."
 end
 
 function M.split_safe_command(command)
@@ -256,7 +278,7 @@ function M.split_safe_command(command)
   end
 
   return nil,
-    "Trusted repo shell only allows cat, find, go test, grep, git read/list commands, ls, make fmt, pwd, rg, and stat."
+    "Trusted repo shell only allows cat, find, go test, grep, git read/list commands, ls, selected validation/test make targets, pwd, rg, and stat."
 end
 
 local function filename_same(left, right)
@@ -335,7 +357,7 @@ local function patch_bash_safe(config)
 
   local safe_function = {
     group = bash.group,
-    description = "Executes a constrained repo-safe command without invoking a shell. Supports read/list commands, selected git inspection commands, `go test`, and `make fmt`.",
+    description = "Executes a constrained repo-safe command without invoking a shell. Supports read/list commands, selected git inspection commands, `go test`, and selected validation/test `make` targets.",
     schema = bash.schema,
     trusted = true,
     resolve = function(input, source)
@@ -344,12 +366,7 @@ local function patch_bash_safe(config)
         error(err .. " Use the shell workflow for complex bash.")
       end
 
-      local out = vim
-        .system(argv, {
-          cwd = source.cwd(),
-          text = true,
-        })
-        :wait()
+      local out = require("CopilotChat.utils").system(argv, source.cwd())
       if out.code ~= 0 then
         error(
           vim.trim(out.stderr or "") ~= "" and vim.trim(out.stderr)

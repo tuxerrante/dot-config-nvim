@@ -15,6 +15,17 @@ local function assert_truthy(value, message)
   end
 end
 
+local function with_stub(tbl, key, value, fn)
+  local original = tbl[key]
+  tbl[key] = value
+  local ok, result = xpcall(fn, debug.traceback)
+  tbl[key] = original
+  if not ok then
+    error(result)
+  end
+  return result
+end
+
 local function make_temp_dir()
   local dir = vim.fn.tempname()
   assert_equal(vim.fn.mkdir(dir, "p"), 1, "failed to create temp dir")
@@ -53,7 +64,7 @@ local function setup_copilotchat()
 end
 
 local function test_readonly_shell_parser()
-  local argv = assert(runtime.split_readonly_command([[cat "foo bar.txt"]]))
+  local argv = assert(runtime.split_safe_command([[cat "foo bar.txt"]]))
   assert_equal(argv, { "cat", "foo bar.txt" }, "quoted readonly command should tokenize safely")
 
   local ok, output = require("CopilotChat.prompts").execute_tool_call("bash_ro", {
@@ -69,10 +80,115 @@ local function test_readonly_shell_parser()
   }
 
   for _, command in ipairs(rejected) do
-    local split_ok, err = runtime.split_readonly_command(command)
+    local split_ok, err = runtime.split_safe_command(command)
     assert_equal(split_ok, nil, "dangerous readonly command should be rejected")
     assert_truthy(type(err) == "string" and err ~= "", "rejected readonly command should explain why")
   end
+
+  local shell_only, shell_only_err = runtime.split_safe_command([[grep -n "func main" $(go env GOPATH)/src/example/main.go]])
+  assert_equal(shell_only, nil, "shell-only command substitution should be rejected in readonly shell mode")
+  assert_truthy(
+    type(shell_only_err) == "string" and shell_only_err:match("shell"),
+    "shell-only syntax rejection should explain that bash_safe does not invoke a shell"
+  )
+
+  local allowed_make_targets = {
+    "make fmt",
+    "make lint-go",
+    "make unit-test-go",
+    "make test-go",
+    "make validate-imports",
+    "make validate-gh-actions",
+    "make validate-go",
+    "make validate-go-action",
+    "make go-verify",
+  }
+
+  for _, command in ipairs(allowed_make_targets) do
+    local make_argv = assert(runtime.split_safe_command(command))
+    assert_equal(make_argv, vim.split(command, " "), "trusted make target should be allowed: " .. command)
+  end
+
+  local rejected_make_targets = {
+    "make lint-go-fix",
+    "make generate",
+    "make build-all",
+    "make test-e2e",
+  }
+
+  for _, command in ipairs(rejected_make_targets) do
+    local make_argv, make_err = runtime.split_safe_command(command)
+    assert_equal(make_argv, nil, "non-allowlisted make target should be rejected: " .. command)
+    assert_truthy(type(make_err) == "string" and make_err:match("make"), "rejected make target should explain why")
+  end
+end
+
+local function test_readonly_shell_uses_async_system_wrapper()
+  local config = require("CopilotChat.config")
+  local calls = {}
+
+  with_stub(vim, "system", function(cmd, opts, callback)
+    table.insert(calls, {
+      cmd = vim.deepcopy(cmd),
+      opts = vim.deepcopy(opts),
+      callback_type = type(callback),
+    })
+
+    assert_equal(type(callback), "function", "bash_safe should use callback-style vim.system")
+    callback({
+      code = 0,
+      stdout = "async-ok\n",
+      stderr = "",
+    })
+
+    return {
+      wait = function()
+        error("bash_safe should not call :wait() directly")
+      end,
+    }
+  end, function()
+    local ok, output = require("CopilotChat.prompts").execute_tool_call("bash_ro", {
+      command = "pwd",
+    }, config, {
+      cwd = function()
+        return vim.loop.cwd()
+      end,
+    })
+
+    assert_truthy(ok, "bash_ro should succeed through CopilotChat utils.system")
+    assert_equal(output[1].data, "async-ok\n", "bash_ro should return async command stdout")
+  end)
+
+  assert_equal(#calls, 1, "bash_safe should execute exactly one system call")
+end
+
+local function test_rejected_git_command_is_safe_in_fast_event()
+  local wait_for_fast_event = async.wrap(function(callback)
+    local timer = assert(vim.uv.new_timer(), "failed to create timer")
+    timer:start(0, 0, function()
+      local ok, argv_or_err, maybe_err = pcall(runtime.split_safe_command, "git reset --hard")
+      local observed = {
+        ok = ok,
+        argv = argv_or_err,
+        err = maybe_err,
+        fast_event = vim.in_fast_event(),
+      }
+      timer:stop()
+      timer:close()
+      vim.schedule(function()
+        callback(observed)
+      end)
+    end)
+  end, 1)
+
+  local observed = wait_for_fast_event()
+  assert_truthy(observed and observed.fast_event, "validator test should run inside a fast event")
+  assert_truthy(observed.ok, "split_safe_command should not raise inside a fast event")
+  assert_equal(observed.argv, nil, "rejected git command should still be rejected")
+  assert_truthy(
+    type(observed.err) == "string" and observed.err:match("Trusted repo shell only allows git"),
+    "rejected git command should still explain the allowed git subcommands"
+  )
 end
 
 local function test_edit_autosaves_relative_path()
@@ -159,7 +275,11 @@ function M.run()
       setup_copilotchat()
 
       test_readonly_shell_parser()
+      test_readonly_shell_uses_async_system_wrapper()
+      test_rejected_git_command_is_safe_in_fast_event()
+      require("CopilotChat.utils").schedule_main()
       test_edit_autosaves_relative_path()
+      require("CopilotChat.utils").schedule_main()
       test_accept_diff_autosaves_relative_path(require("CopilotChat"))
     end, debug.traceback)
 
