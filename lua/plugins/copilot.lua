@@ -164,6 +164,9 @@ end
 return {
   {
     "CopilotC-Nvim/CopilotChat.nvim",
+    cmd = {
+      "CopilotPrepReview",
+    },
     init = function()
       -- Buffer-local UX tweaks for the dedicated Copilot chat window.
       vim.api.nvim_create_autocmd("FileType", {
