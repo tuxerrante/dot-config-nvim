@@ -18,6 +18,10 @@ matching, worktree selection, switch behavior, or env bootstrap semantics.
 compact context bundle for the first review prompt and opens CopilotChat with
 that prompt prefilled so you can edit it before sending.
 
+`CopilotPrepReview` is also a lazy-load command trigger for `CopilotChat.nvim`,
+so you do not need to open CopilotChat manually first. A cold start from
+`:CopilotPrepReview <pr-url>` is expected to work.
+
 The workflow is intentionally split:
 
 - Lua handles the editor UX and CopilotChat handoff
