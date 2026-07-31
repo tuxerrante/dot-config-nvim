@@ -64,6 +64,14 @@ local function current_source(cwd)
   }
 end
 
+local function shell_source(cwd)
+  return {
+    cwd = function()
+      return cwd
+    end,
+  }
+end
+
 local function setup_copilotchat()
   local chat = require("CopilotChat")
   chat.setup({})
@@ -89,6 +97,10 @@ local function test_tool_sets_keep_shell_policy_explicit()
 end
 
 local function test_readonly_shell_parser()
+  runtime._reset_rtk_state_for_tests()
+  runtime._set_rtk_path_for_tests(nil)
+  runtime._set_rtk_missing_notified_for_tests(true)
+
   local argv = assert(runtime.split_safe_command([[cat "foo bar.txt"]]))
   assert_equal(argv, { "cat", "foo bar.txt" }, "quoted readonly command should tokenize safely")
 
@@ -106,11 +118,13 @@ local function test_readonly_shell_parser()
     "trusted grep command should allow quoted patterns and absolute paths"
   )
 
-  local ok, output = require("CopilotChat.prompts").execute_tool_call("bash_ro", {
-    command = "pwd",
-  }, require("CopilotChat.config"), current_source(vim.loop.cwd()))
-  assert_truthy(ok, "bash_ro pwd should succeed")
-  assert_truthy(output[1] and output[1].data and output[1].data ~= "", "bash_ro should return stdout")
+  with_stub(vim, "notify", function() end, function()
+    local ok, output = require("CopilotChat.prompts").execute_tool_call("bash_ro", {
+      command = "pwd",
+    }, require("CopilotChat.config"), current_source(vim.loop.cwd()))
+    assert_truthy(ok, "bash_ro pwd should succeed")
+    assert_truthy(output[1] and output[1].data and output[1].data ~= "", "bash_ro should return stdout")
+  end)
 
   local rejected = {
     [[find . -delete]],
@@ -165,40 +179,233 @@ end
 local function test_readonly_shell_uses_async_system_wrapper()
   local config = require("CopilotChat.config")
   local calls = {}
+  runtime._reset_rtk_state_for_tests()
+  runtime._set_rtk_path_for_tests(nil)
+  runtime._set_rtk_missing_notified_for_tests(true)
 
-  with_stub(vim, "system", function(cmd, opts, callback)
-    table.insert(calls, {
-      cmd = vim.deepcopy(cmd),
-      opts = vim.deepcopy(opts),
-      callback_type = type(callback),
-    })
+  with_stub(vim, "notify", function() end, function()
+    with_stub(vim, "system", function(cmd, opts, callback)
+      table.insert(calls, {
+        cmd = vim.deepcopy(cmd),
+        opts = vim.deepcopy(opts),
+        callback_type = type(callback),
+      })
 
-    assert_equal(type(callback), "function", "bash_safe should use callback-style vim.system")
-    callback({
-      code = 0,
-      stdout = "async-ok\n",
-      stderr = "",
-    })
+      assert_equal(type(callback), "function", "bash_safe should use callback-style vim.system")
+      callback({
+        code = 0,
+        stdout = "async-ok\n",
+        stderr = "",
+      })
 
-    return {
-      wait = function()
-        error("bash_safe should not call :wait() directly")
-      end,
-    }
-  end, function()
-    local ok, output = require("CopilotChat.prompts").execute_tool_call("bash_ro", {
-      command = "pwd",
-    }, config, {
-      cwd = function()
-        return vim.loop.cwd()
-      end,
-    })
+      return {
+        wait = function()
+          error("bash_safe should not call :wait() directly")
+        end,
+      }
+    end, function()
+      local ok, output = require("CopilotChat.prompts").execute_tool_call("bash_ro", {
+        command = "pwd",
+      }, config, {
+        cwd = function()
+          return vim.loop.cwd()
+        end,
+      })
 
-    assert_truthy(ok, "bash_ro should succeed through CopilotChat utils.system")
-    assert_equal(output[1].data, "async-ok\n", "bash_ro should return async command stdout")
+      assert_truthy(ok, "bash_ro should succeed through CopilotChat utils.system")
+      assert_equal(output[1].data, "async-ok\n", "bash_ro should return async command stdout")
+    end)
   end)
 
   assert_equal(#calls, 1, "bash_safe should execute exactly one system call")
+end
+
+local function test_rtk_compacts_shell_output_when_available()
+  local config = require("CopilotChat.config")
+  local calls = {}
+  local notify_calls = {}
+  runtime._reset_rtk_state_for_tests()
+  runtime._set_rtk_path_for_tests("/tmp/fake-rtk")
+
+  with_stub(vim, "notify", function(message, level, opts)
+    table.insert(notify_calls, {
+      message = message,
+      level = level,
+      opts = opts,
+    })
+  end, function()
+    with_stub(vim, "system", function(cmd, opts, callback)
+      table.insert(calls, {
+        cmd = vim.deepcopy(cmd),
+        opts = vim.deepcopy(opts),
+        callback_type = type(callback),
+      })
+
+      if #calls == 1 then
+        assert_equal(type(callback), "function", "bash_ro should still execute the underlying command asynchronously")
+        callback({
+          code = 0,
+          stdout = "trusted shell output\n",
+          stderr = "",
+        })
+      elseif #calls == 2 then
+        assert_equal(callback, nil, "RTK compaction should run as a synchronous post-processing step")
+        assert_equal(cmd[1], "/tmp/fake-rtk", "bash_ro should compact through the detected rtk binary")
+        assert_equal(cmd[2], "cat", "bash_ro should ask rtk to compact a temp file snapshot")
+        return {
+          wait = function()
+            return {
+              code = 0,
+              stdout = "--- HEAD (180 lines) ---\ntrusted shell output\n",
+              stderr = "[rtk] original lines: 999; emitting compressed snapshot\n",
+            }
+          end,
+        }
+      elseif #calls == 3 then
+        assert_equal(type(callback), "function", "bash should still execute the underlying command asynchronously")
+        callback({
+          code = 0,
+          stdout = "unrestricted shell output\n",
+          stderr = "",
+        })
+      elseif #calls == 4 then
+        assert_equal(callback, nil, "RTK compaction should run as a synchronous post-processing step")
+        assert_equal(cmd[1], "/tmp/fake-rtk", "bash should reuse the detected rtk binary")
+        assert_equal(cmd[2], "cat", "bash should compact the captured stdout through rtk")
+        return {
+          wait = function()
+            return {
+              code = 0,
+              stdout = "--- HEAD (180 lines) ---\nunrestricted shell output\n",
+              stderr = "",
+            }
+          end,
+        }
+      else
+        error("unexpected vim.system call count: " .. tostring(#calls))
+      end
+
+      return {
+        wait = function()
+          error("shell tool tests should not call :wait() directly")
+        end,
+      }
+    end, function()
+      local output_ro = config.functions.bash_safe.resolve({
+        command = "pwd",
+      }, shell_source(vim.loop.cwd()))
+      assert_equal(
+        output_ro[1].data,
+        "[rtk] original lines: 999; emitting compressed snapshot\n--- HEAD (180 lines) ---\ntrusted shell output\n",
+        "bash_ro should return the RTK-compacted snapshot"
+      )
+
+      local output_bash = config.functions.bash.resolve({
+        command = "printf test",
+      }, shell_source(vim.loop.cwd()))
+      assert_equal(
+        output_bash[1].data,
+        "--- HEAD (180 lines) ---\nunrestricted shell output\n",
+        "bash should also return the RTK-compacted snapshot"
+      )
+    end)
+  end)
+
+  assert_equal(#calls, 4, "RTK-present shell calls should execute the command and one RTK compaction pass per tool call")
+  assert_equal(#notify_calls, 0, "RTK-present shell calls should not show the missing-RTK banner")
+end
+
+local function test_rtk_missing_falls_back_to_plain_shell_output()
+  local config = require("CopilotChat.config")
+  local calls = {}
+  local notify_calls = {}
+  runtime._reset_rtk_state_for_tests()
+  runtime._set_rtk_path_for_tests(nil)
+
+  with_stub(vim, "notify", function(message, level, opts)
+    table.insert(notify_calls, {
+      message = message,
+      level = level,
+      opts = opts,
+    })
+  end, function()
+    with_stub(vim, "system", function(cmd, opts, callback)
+      table.insert(calls, {
+        cmd = vim.deepcopy(cmd),
+        opts = vim.deepcopy(opts),
+        callback_type = type(callback),
+      })
+
+      assert_equal(type(callback), "function", "missing RTK should not change the main shell execution mode")
+      callback({
+        code = 0,
+        stdout = "plain trusted output\n",
+        stderr = "",
+      })
+
+      return {
+        wait = function()
+          error("shell tool tests should not call :wait() directly")
+        end,
+      }
+    end, function()
+      local output = config.functions.bash_safe.resolve({
+        command = "pwd",
+      }, shell_source(vim.loop.cwd()))
+      assert_equal(output[1].data, "plain trusted output\n", "missing RTK should fall back to the original shell output")
+      require("CopilotChat.utils").schedule_main()
+      assert_truthy(#notify_calls > 0, "missing RTK notice should be delivered while the stub is active")
+    end)
+  end)
+
+  assert_equal(#calls, 1, "missing RTK should not add a second compaction system call")
+  assert_equal(#notify_calls, 1, "missing RTK should show one informational banner on first shell use")
+  assert_truthy(
+    type(notify_calls[1].message) == "string" and string.find(notify_calls[1].message, "`rtk`", 1, true),
+    "missing RTK banner should mention the optional rtk install"
+  )
+end
+
+local function test_rtk_missing_banner_only_notifies_once_per_session()
+  local config = require("CopilotChat.config")
+  local notify_calls = {}
+  runtime._reset_rtk_state_for_tests()
+  runtime._set_rtk_path_for_tests(nil)
+
+  with_stub(vim, "notify", function(message, level, opts)
+    table.insert(notify_calls, {
+      message = message,
+      level = level,
+      opts = opts,
+    })
+  end, function()
+    with_stub(vim, "system", function(_, _, callback)
+      assert_equal(type(callback), "function", "missing RTK should keep shell execution on the async vim.system path")
+      callback({
+        code = 0,
+        stdout = "plain output\n",
+        stderr = "",
+      })
+      return {
+        wait = function()
+          error("shell tool tests should not call :wait() directly")
+        end,
+      }
+    end, function()
+      local output_ro = config.functions.bash_safe.resolve({
+        command = "pwd",
+      }, shell_source(vim.loop.cwd()))
+      local output_bash = config.functions.bash.resolve({
+        command = "printf test",
+      }, shell_source(vim.loop.cwd()))
+      assert_equal(output_ro[1].data, "plain output\n", "first missing-RTK shell call should still fall back cleanly")
+      assert_equal(output_bash[1].data, "plain output\n", "second missing-RTK shell call should still fall back cleanly")
+      require("CopilotChat.utils").schedule_main()
+      assert_truthy(#notify_calls > 0, "missing RTK banner should be delivered while the stub is active")
+    end)
+  end)
+
+  assert_equal(#notify_calls, 1, "missing RTK banner should only appear once per Neovim session")
 end
 
 local function test_rejected_git_command_is_safe_in_fast_event()
@@ -316,6 +523,9 @@ function M.run()
       test_tool_sets_keep_shell_policy_explicit()
       test_readonly_shell_parser()
       test_readonly_shell_uses_async_system_wrapper()
+      test_rtk_compacts_shell_output_when_available()
+      test_rtk_missing_falls_back_to_plain_shell_output()
+      test_rtk_missing_banner_only_notifies_once_per_session()
       test_rejected_git_command_is_safe_in_fast_event()
       require("CopilotChat.utils").schedule_main()
       test_edit_autosaves_relative_path()

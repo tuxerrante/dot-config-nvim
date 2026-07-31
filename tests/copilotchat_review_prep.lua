@@ -505,6 +505,52 @@ local function test_build_prompt_tolerates_null_pr_diff()
   end)
 end
 
+local function test_build_prompt_tolerates_json_null_jira_fields()
+  with_review_prep(nil, function(review_prep)
+    local bundle = vim.json.decode([[{
+      "pr": {
+        "url": "https://github.com/Owner/Repo/pull/123",
+        "title": "Example",
+        "files": []
+      },
+      "jira": [
+        {
+          "key": "ARO-1",
+          "url": "https://jira.example/browse/ARO-1",
+          "summary": null,
+          "status": null,
+          "epic": null,
+          "parent": {
+            "key": "ARO-0",
+            "summary": null,
+            "status": null,
+            "issue_type": "Parent"
+          },
+          "linked_issues": [
+            {
+              "key": "ARO-2",
+              "summary": null,
+              "status": null,
+              "relation": "relates to"
+            }
+          ]
+        }
+      ],
+      "caveats": []
+    }]])
+    local prompt = review_prep.build_prompt(bundle)
+
+    assert_match(prompt, "Jira refs", "prompt should still render the Jira section when decoded nulls are present")
+    assert_match(
+      prompt,
+      "[ARO-1](https://jira.example/browse/ARO-1): summary unavailable",
+      "null Jira summaries should degrade instead of crashing"
+    )
+    assert_match(prompt, "Parent ARO-0 [unknown]: summary unavailable", "null parent summaries should degrade instead of crashing")
+    assert_match(prompt, "Linked: relates to: ARO-2 [unknown] summary unavailable", "null linked issue summaries should degrade instead of crashing")
+  end)
+end
+
 local function test_collect_runs_collector_from_selected_worktree_root()
   with_review_prep(nil, function(review_prep)
     with_temp_dir("copilot-review-collector", function(root)
@@ -934,6 +980,7 @@ function M.run()
   test_build_prompt()
   test_build_prompt_caps_review_discussion_and_marks_cached_snapshot_stale()
   test_build_prompt_tolerates_null_pr_diff()
+  test_build_prompt_tolerates_json_null_jira_fields()
   test_collect_preserves_collector_contract_with_explicit_worktree_root()
   test_collect_runs_collector_from_selected_worktree_root()
   test_run_collects_from_selected_worktree_root()

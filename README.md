@@ -69,6 +69,13 @@ The `CopilotChat.nvim` workflow is split into focused modes:
 The default tool policy prefers safe repo inspection and avoids dumping full file
 contents into chat unless needed.
 
+If `rtk` is on your `PATH`, the explicit shell tools (`bash_safe` / `bash`)
+post-process large captured output snapshots before they go back into
+CopilotChat. The original command still runs normally first; `rtk` only
+compacts oversized output after capture. If `rtk` is not installed, shell mode
+still works normally and shows a small one-time install hint for the current
+Neovim session.
+
 ### CopilotChat can prep a PR review prompt
 
 There is a review-focused command for seeding the first CopilotChat prompt from

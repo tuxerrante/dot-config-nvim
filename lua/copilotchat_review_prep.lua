@@ -31,8 +31,23 @@ local function cache_dir()
   return vim.g.copilot_prep_review_cache_dir or (vim.fn.stdpath("cache") .. "/copilot-prep-review")
 end
 
+local function maybe_string(value)
+  if type(value) ~= "string" or value == "" then
+    return nil
+  end
+  return value
+end
+
+local function maybe_table(value)
+  if type(value) ~= "table" then
+    return nil
+  end
+  return value
+end
+
 local function single_line(text)
-  if not text or text == "" then
+  text = maybe_string(text)
+  if not text then
     return nil
   end
 
@@ -234,23 +249,29 @@ local function summarize_related(item)
 end
 
 local function summarize_jira(item)
+  item = maybe_table(item) or {}
   local summary = item.summary and single_line(item.summary) or "summary unavailable"
-  local status = item.status and (" [" .. item.status .. "]") or ""
-  local ref = item.url and string.format("[%s](%s)", item.key, item.url) or item.key
+  local status_value = maybe_string(item.status)
+  local status = status_value and (" [" .. status_value .. "]") or ""
+  local key = maybe_string(item.key) or "unknown"
+  local url = maybe_string(item.url)
+  local ref = url and string.format("[%s](%s)", key, url) or key
   local parts = { string.format("%s%s: %s", ref, status, summary) }
 
-  local parent = item.epic or item.parent
+  local parent = maybe_table(item.epic) or maybe_table(item.parent)
   if parent and parent.key then
-    local parent_ref = parent.url and string.format("[%s](%s)", parent.key, parent.url) or parent.key
-    local parent_type = parent.issue_type or (item.epic and "Epic") or "Parent"
+    local parent_key = maybe_string(parent.key) or "unknown"
+    local parent_url = maybe_string(parent.url)
+    local parent_ref = parent_url and string.format("[%s](%s)", parent_key, parent_url) or parent_key
+    local parent_type = maybe_string(parent.issue_type) or (maybe_table(item.epic) and "Epic") or "Parent"
     local parent_summary = parent.summary and single_line(parent.summary) or "summary unavailable"
     table.insert(
       parts,
-      string.format("%s %s [%s]: %s", parent_type, parent_ref, parent.status or "unknown", parent_summary)
+      string.format("%s %s [%s]: %s", parent_type, parent_ref, maybe_string(parent.status) or "unknown", parent_summary)
     )
   end
 
-  local linked = item.linked_issues or {}
+  local linked = maybe_table(item.linked_issues) or {}
   if #linked > 0 then
     local linked_parts = {}
     for index, linked_item in ipairs(linked) do
@@ -259,13 +280,15 @@ local function summarize_jira(item)
         break
       end
 
-      local linked_ref = linked_item.url and string.format("[%s](%s)", linked_item.key, linked_item.url)
-        or linked_item.key
+      local linked_key = maybe_string(linked_item.key) or "unknown"
+      local linked_url = maybe_string(linked_item.url)
+      local linked_ref = linked_url and string.format("[%s](%s)", linked_key, linked_url) or linked_key
       local linked_summary = linked_item.summary and single_line(linked_item.summary) or "summary unavailable"
-      local relation = linked_item.relation and (linked_item.relation .. ": ") or ""
+      local relation_value = maybe_string(linked_item.relation)
+      local relation = relation_value and (relation_value .. ": ") or ""
       table.insert(
         linked_parts,
-        string.format("%s%s [%s] %s", relation, linked_ref, linked_item.status or "unknown", linked_summary)
+        string.format("%s%s [%s] %s", relation, linked_ref, maybe_string(linked_item.status) or "unknown", linked_summary)
       )
     end
     table.insert(parts, "Linked: " .. table.concat(linked_parts, " | "))

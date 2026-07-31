@@ -185,6 +185,13 @@ prompt containing:
 The command finishes by focusing the chat input. With the existing config in
 this repo, send it with `<C-j>`.
 
+RTK compaction is not part of the review-prep collector itself. It only applies
+later if you use the explicit CopilotChat shell workflow from the opened review
+chat: when `rtk` is on your `PATH`, large captured shell-output snapshots are
+compacted before they go back into chat; otherwise shell mode falls back
+normally and shows the same one-time install hint for the current Neovim
+session.
+
 ## Cache behavior
 
 Bundles are cached under Neovim's cache dir:

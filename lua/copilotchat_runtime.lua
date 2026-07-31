@@ -79,6 +79,15 @@ local DISALLOWED_GO_TEST_FLAGS = {
   ["-o"] = true,
 }
 
+local RTK_MISSING_MESSAGE =
+  "CopilotChat shell output can use `rtk` to compact large command results. Install `rtk` to enable it."
+
+local rtk_state = {
+  checked = false,
+  path = nil,
+  missing_notified = false,
+}
+
 local SAFE_MAKE_TARGETS = {
   fmt = true,
   ["go-verify"] = true,
@@ -90,6 +99,122 @@ local SAFE_MAKE_TARGETS = {
   ["validate-go-action"] = true,
   ["validate-imports"] = true,
 }
+
+local function reset_rtk_state()
+  rtk_state.checked = false
+  rtk_state.path = nil
+  rtk_state.missing_notified = false
+end
+
+local function detect_rtk()
+  if not rtk_state.checked then
+    local path = vim.fn.exepath("rtk")
+    if path and path ~= "" then
+      rtk_state.path = path
+    end
+    rtk_state.checked = true
+  end
+
+  return rtk_state.path
+end
+
+local function notify_missing_rtk_once()
+  if rtk_state.missing_notified then
+    return
+  end
+
+  rtk_state.missing_notified = true
+
+  local function emit()
+    vim.notify(RTK_MISSING_MESSAGE, vim.log.levels.INFO, {
+      title = "CopilotChat",
+    })
+  end
+
+  if vim.in_fast_event() then
+    vim.schedule(emit)
+  else
+    emit()
+  end
+end
+
+local function create_temp_file(text)
+  local fd, path = vim.uv.fs_mkstemp(vim.uv.os_tmpdir() .. "/copilotchat-rtk-XXXXXX")
+  if not fd then
+    return nil, path
+  end
+
+  local ok, write_err = vim.uv.fs_write(fd, text, 0)
+  local closed, close_err = pcall(vim.uv.fs_close, fd)
+  if not ok then
+    pcall(vim.uv.fs_unlink, path)
+    return nil, write_err
+  end
+  if not closed then
+    pcall(vim.uv.fs_unlink, path)
+    return nil, close_err
+  end
+
+  return path
+end
+
+local function compact_shell_output_with_rtk(text, cwd)
+  if type(text) ~= "string" or text == "" then
+    return text
+  end
+
+  local rtk_path = detect_rtk()
+  if not rtk_path then
+    notify_missing_rtk_once()
+    return text
+  end
+
+  local temp_path, write_err = create_temp_file(text)
+  if not temp_path then
+    if write_err then
+      vim.schedule(function()
+        vim.notify(("CopilotChat RTK compaction skipped: %s"):format(write_err), vim.log.levels.DEBUG, {
+          title = "CopilotChat",
+        })
+      end)
+    end
+    return text
+  end
+
+  local out = vim.system({ rtk_path, "cat", temp_path }, { cwd = cwd, text = true }):wait()
+  pcall(vim.uv.fs_unlink, temp_path)
+  if out.code ~= 0 then
+    return text
+  end
+
+  local parts = {}
+  local stderr = vim.trim(out.stderr or "")
+  if stderr ~= "" then
+    table.insert(parts, stderr)
+  end
+
+  local stdout = out.stdout or ""
+  if stdout ~= "" then
+    table.insert(parts, stdout)
+  end
+
+  local compacted = table.concat(parts, "\n")
+  return compacted ~= "" and compacted or text
+end
+
+local function compact_tool_output(output, cwd)
+  if type(output) ~= "table" then
+    return output
+  end
+
+  for _, content in ipairs(output) do
+    if type(content) == "table" and type(content.data) == "string" and content.data ~= "" then
+      content.data = compact_shell_output_with_rtk(content.data, cwd)
+    end
+  end
+
+  return output
+end
 
 local function format_list(list)
   local keys = vim.tbl_keys(list)
@@ -299,6 +424,19 @@ function M.split_safe_command(command)
     "Trusted repo shell only allows cat, find, go test, grep, git read/list commands, ls, selected validation/test make targets, pwd, rg, and stat."
 end
 
+function M._reset_rtk_state_for_tests()
+  reset_rtk_state()
+end
+
+function M._set_rtk_path_for_tests(path)
+  rtk_state.checked = true
+  rtk_state.path = path
+end
+
+function M._set_rtk_missing_notified_for_tests(value)
+  rtk_state.missing_notified = not not value
+end
+
 local function filename_same(left, right)
   return require("CopilotChat.utils.files").filename_same(left, right)
 end
@@ -394,7 +532,7 @@ local function patch_bash_safe(config)
 
       return {
         {
-          data = out.stdout or "",
+          data = compact_shell_output_with_rtk(out.stdout or "", source and source.cwd and source.cwd()),
         },
       }
     end,
@@ -406,6 +544,20 @@ local function patch_bash_safe(config)
       description = "Alias for bash_safe.",
     })
   config._aaff_safe_bash_patched = true
+end
+
+local function patch_bash_output_compaction(config)
+  local bash = config.functions.bash
+  if not bash or bash._aaff_rtk_patched then
+    return
+  end
+
+  local original_bash_resolve = bash.resolve
+  bash.resolve = function(input, source)
+    local output = original_bash_resolve(input, source)
+    return compact_tool_output(output, source and source.cwd and source.cwd())
+  end
+  bash._aaff_rtk_patched = true
 end
 
 local function patch_edit_autosave(config)
@@ -447,6 +599,7 @@ function M.patch_config(config)
     return
   end
 
+  patch_bash_output_compaction(config)
   patch_bash_safe(config)
   patch_edit_autosave(config)
   patch_accept_diff_autosave(config)
