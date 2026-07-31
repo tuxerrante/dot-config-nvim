@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a focused improvement for this Neovim config
+title: "[feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow gap
+      description: What is hard, noisy, or missing today?
+      placeholder: In large Go repos, I want...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the behavior you want and why it helps.
+      placeholder: Add a command / simplify a flow / document a safer default...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional, but useful if you already evaluated another approach.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked that this request is specific to this repo and not just a generic LazyVim question.
+          required: true
+        - label: I read `CONTRIBUTING.md`, including the disposable test workflow for future PRs.
+          required: true

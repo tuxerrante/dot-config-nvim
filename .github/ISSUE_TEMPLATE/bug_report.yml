@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible problem in this Neovim config
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report.
+
+        Please reproduce from a disposable Neovim environment when possible. Do not point an untrusted branch at your live `~/.config/nvim` profile.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the bug and the expected behavior.
+      placeholder: Opening `:CopilotPrepReview` should..., but instead...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include exact commands, key paths, or minimal repo/setup details.
+      placeholder: |
+        1. Run ...
+        2. Open ...
+        3. Trigger ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Share relevant versions and tooling details.
+      placeholder: |
+        OS:
+        Neovim:
+        Go:
+        Python:
+        Extra tools:
+    validations:
+      required: true
+  - type: checkboxes
+    id: validation
+    attributes:
+      label: Validation
+      options:
+        - label: I reproduced this from a disposable Neovim environment, or I could not because the bug blocks setup before that point.
+          required: true
+        - label: I am not reporting a security issue publicly.
+          required: true

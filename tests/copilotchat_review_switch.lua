@@ -45,6 +45,7 @@ local function test_root()
 end
 
 local function with_temp_dir(prefix, fn)
+  local original_cwd = vim.uv.cwd()
   local parent = vim.fs.joinpath(test_root(), ".tmp-test-fixtures")
   if not vim.uv.fs_stat(parent) then
     assert_truthy(vim.fn.mkdir(parent, "p") == 1, "failed to create fixture parent " .. parent)
@@ -57,6 +58,9 @@ local function with_temp_dir(prefix, fn)
     return fn(root)
   end, debug.traceback)
 
+  if original_cwd then
+    pcall(vim.api.nvim_set_current_dir, original_cwd)
+  end
   vim.fn.delete(root, "rf")
   if not ok then
     error(result)
