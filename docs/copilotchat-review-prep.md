@@ -192,6 +192,32 @@ compacted before they go back into chat; otherwise shell mode falls back
 normally and shows the same one-time install hint for the current Neovim
 session.
 
+If you want to measure just that post-capture shell-output compaction step, run:
+
+```bash
+python3 scripts/benchmark_rtk_shell_review.py
+```
+
+Pass one or more quoted commands to benchmark your own review-style shell
+queries. Without extra args, the script runs a small built-in review-style
+command set against the repo. If `rtk` is missing, the script degrades to
+raw-only metrics; use `--require-rtk` if you want that to fail fast instead.
+
+This is intentionally a narrow proxy, not a Copilot billing meter:
+
+- `raw` measures captured command `stdout` before RTK
+- `compacted` measures the exact live return payload: trimmed RTK `stderr` plus
+  RTK `stdout`
+- `tok~` is only a rough `chars / 4` estimate
+- it does not measure Copilot billing or full prompt size once the rest of the
+  review context is added
+
+On the isolated run that motivated this script, the built-in review command set
+reduced total chars by about 31%, and the largest built-in sample
+(`rg -n "CopilotChat|rtk|review|shell" README.md docs lua tests scripts`)
+reduced chars by about 33%. Treat those numbers as point-in-time examples, not
+guarantees: they vary with repo state, command choice, and RTK behavior.
+
 ## Cache behavior
 
 Bundles are cached under Neovim's cache dir:
