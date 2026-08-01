@@ -92,6 +92,24 @@ local function resolve_step(invoke, callback)
   end
 end
 
+function M.ensure_github_auth(callback)
+  if vim.fn.executable("gh") ~= 1 then
+    callback("GitHub authentication is required: install `gh`, run `gh auth login -h github.com`, then retry.")
+    return
+  end
+
+  vim.system({ "gh", "auth", "status", "-h", "github.com" }, { text = true }, function(out)
+    vim.schedule(function()
+      if out.code == 0 then
+        callback(nil)
+        return
+      end
+
+      callback("GitHub authentication is required: run `gh auth login -h github.com`, then retry.")
+    end)
+  end)
+end
+
 local function prepare_worktree(pr_url, callback)
   local pr, pr_err = review_repo.parse_pr_url(pr_url)
   if pr_err then
@@ -404,32 +422,36 @@ local function summarize_pr_diff(diff)
 end
 
 function M.build_prompt(bundle)
-  local pr = bundle.pr or {}
-  local repo = bundle.repo or {}
-  local title = pr.title or ("PR #" .. tostring(pr.number or "?"))
+  local pr = maybe_table(bundle.pr) or {}
+  local repo = maybe_table(bundle.repo) or {}
+  local title = maybe_string(pr.title) or ("PR #" .. tostring(pr.number or "?"))
+  local pr_url = maybe_string(pr.url) or ""
+  local owner_repo = maybe_string(pr.owner_repo) or maybe_string(repo.owner_repo) or "unknown"
   local header = {
-    string.format("Review GitHub PR %s: %s", pr.url or "", title),
+    string.format("Review GitHub PR %s: %s", pr_url, title),
     "",
     "Use the bundle below as the prepared first-pass context. Be explicit about missing sources or degraded lookups instead of pretending they were read.",
   }
 
   local facts = {
-    bullet(string.format("repo: `%s`", pr.owner_repo or repo.owner_repo or "unknown")),
-    bullet(string.format("base/head: `%s` <- `%s`", pr.base_ref or "unknown", pr.head_ref or "unknown")),
-    bullet(string.format("author: `%s`", pr.author or "unknown")),
-    bullet(string.format("merge state: `%s`", pr.merge_state or "unknown")),
-    bullet(string.format("review decision: `%s`", pr.review_decision or "unknown")),
+    bullet(string.format("repo: `%s`", owner_repo)),
+    bullet(string.format("base/head: `%s` <- `%s`", maybe_string(pr.base_ref) or "unknown", maybe_string(pr.head_ref) or "unknown")),
+    bullet(string.format("author: `%s`", maybe_string(pr.author) or "unknown")),
+    bullet(string.format("merge state: `%s`", maybe_string(pr.merge_state) or "unknown")),
+    bullet(string.format("review decision: `%s`", maybe_string(pr.review_decision) or "unknown")),
   }
 
-  if repo.root then
-    table.insert(facts, bullet(string.format("local repo root: `%s`", repo.root)))
+  local repo_root = maybe_string(repo.root)
+  if repo_root then
+    table.insert(facts, bullet(string.format("local repo root: `%s`", repo_root)))
   end
-  if repo.branch then
-    table.insert(facts, bullet(string.format("local branch: `%s`", repo.branch)))
+  local repo_branch = maybe_string(repo.branch)
+  if repo_branch then
+    table.insert(facts, bullet(string.format("local branch: `%s`", repo_branch)))
   end
 
   local changed_files = {}
-  for index, path in ipairs(pr.files or {}) do
+  for index, path in ipairs(maybe_table(pr.files) or {}) do
     if index > 12 then
       table.insert(changed_files, bullet(string.format("... plus %d more file(s)", #pr.files - 12)))
       break
@@ -587,40 +609,47 @@ end
 
 function M.run(pr_url, opts)
   opts = opts or {}
-  prepare_worktree(pr_url, function(worktree, prep_err)
-    if prep_err then
-      notify(prep_err, vim.log.levels.ERROR)
+  M.ensure_github_auth(function(auth_err)
+    if auth_err then
+      notify(auth_err, vim.log.levels.ERROR)
       return
     end
 
-    notify("Collecting review context bundle...")
-    M.collect(pr_url, {
-      refresh = opts.refresh,
-      repo_root = worktree.worktree_root,
-    }, function(bundle, err)
-      if err then
-        notify(err, vim.log.levels.ERROR)
+    prepare_worktree(pr_url, function(worktree, prep_err)
+      if prep_err then
+        notify(prep_err, vim.log.levels.ERROR)
         return
       end
 
-      local _, repo_err = validate_collected_repo_context(bundle, worktree)
-      if repo_err then
-        notify(repo_err, vim.log.levels.ERROR)
-        return
-      end
+      notify("Collecting review context bundle...")
+      M.collect(pr_url, {
+        refresh = opts.refresh,
+        repo_root = worktree.worktree_root,
+      }, function(bundle, err)
+        if err then
+          notify(err, vim.log.levels.ERROR)
+          return
+        end
 
-      local prompt = M.build_prompt(bundle)
-      handoff_prompt(prompt)
+        local _, repo_err = validate_collected_repo_context(bundle, worktree)
+        if repo_err then
+          notify(repo_err, vim.log.levels.ERROR)
+          return
+        end
 
-      local cache_state = bundle.cache_hit and "cache hit" or "fresh bundle"
-      local caveat_count = #(bundle.caveats or {})
-      notify(
-        string.format(
-          "Prompt prepared in CopilotChat (%s, %d caveat(s)). Press <C-j> to send.",
-          cache_state,
-          caveat_count
+        local prompt = M.build_prompt(bundle)
+        handoff_prompt(prompt)
+
+        local cache_state = bundle.cache_hit and "cache hit" or "fresh bundle"
+        local caveat_count = #(bundle.caveats or {})
+        notify(
+          string.format(
+            "Prompt prepared in CopilotChat (%s, %d caveat(s)). Press <C-j> to send.",
+            cache_state,
+            caveat_count
+          )
         )
-      )
+      end)
     end)
   end)
 end

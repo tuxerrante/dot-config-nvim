@@ -103,11 +103,12 @@ Use `:CopilotPrepReview!` to refresh the cached bundle. `!` only affects the
 collector cache. It does not change repo matching, worktree selection, switch
 behavior, or env bootstrap semantics.
 
-`CopilotPrepReview` validates the matching local repo, creates or reuses a
-detached `.worktrees/pr-<number>` review checkout, safely switches the current
-Neovim session into that worktree, bootstraps only explicitly allowlisted env
-symlinks, then collects review context against the selected worktree before
-opening CopilotChat.
+`CopilotPrepReview` requires an authenticated GitHub CLI before it starts:
+run `gh auth login -h github.com` if needed. It then validates the matching
+local repo, creates or reuses a detached `.worktrees/pr-<number>` review
+checkout, safely switches the current Neovim session into that worktree,
+bootstraps only explicitly allowlisted env symlinks, then collects review
+context against the selected worktree before opening CopilotChat.
 
 The prompt is inserted into the current CopilotChat session instead of being
 made globally sticky.

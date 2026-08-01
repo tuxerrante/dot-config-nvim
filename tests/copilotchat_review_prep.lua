@@ -70,6 +70,12 @@ local function with_stub(tbl, key, value, fn)
   return result, extra
 end
 
+local function allow_github_auth(review_prep)
+  review_prep.ensure_github_auth = function(callback)
+    callback(nil)
+  end
+end
+
 local function clear_review_prep_modules()
   package.loaded.copilotchat_review_prep = nil
   package.loaded.copilotchat_review_repo = nil
@@ -505,6 +511,38 @@ local function test_build_prompt_tolerates_null_pr_diff()
   end)
 end
 
+local function test_build_prompt_tolerates_json_null_pr_metadata()
+  with_review_prep(nil, function(review_prep)
+    local bundle = vim.json.decode([[{
+      "pr": {
+        "url": "https://github.com/Owner/Repo/pull/123",
+        "title": null,
+        "owner_repo": "Owner/Repo",
+        "number": 123,
+        "author": null,
+        "base_ref": null,
+        "head_ref": null,
+        "merge_state": null,
+        "review_decision": null,
+        "files": []
+      },
+      "repo": {
+        "root": "/tmp/repo",
+        "branch": null
+      },
+      "caveats": []
+    }]])
+    local prompt = review_prep.build_prompt(bundle)
+
+    assert_match(prompt, "Review GitHub PR https://github.com/Owner/Repo/pull/123: PR #123", "null title should fall back")
+    assert_match(prompt, "base/head: `unknown` <- `unknown`", "null refs should fall back")
+    assert_match(prompt, "author: `unknown`", "null author should fall back")
+    assert_match(prompt, "merge state: `unknown`", "null merge state should fall back")
+    assert_match(prompt, "review decision: `unknown`", "null review decision should fall back")
+    assert_not_match(prompt, "vim.NIL", "JSON nulls must not leak into the prompt")
+  end)
+end
+
 local function test_build_prompt_tolerates_json_null_jira_fields()
   with_review_prep(nil, function(review_prep)
     local bundle = vim.json.decode([[{
@@ -548,6 +586,66 @@ local function test_build_prompt_tolerates_json_null_jira_fields()
     )
     assert_match(prompt, "Parent ARO-0 [unknown]: summary unavailable", "null parent summaries should degrade instead of crashing")
     assert_match(prompt, "Linked: relates to: ARO-2 [unknown] summary unavailable", "null linked issue summaries should degrade instead of crashing")
+  end)
+end
+
+local function test_ensure_github_auth_requires_authenticated_gh()
+  with_review_prep(nil, function(review_prep)
+    local system_call = nil
+    local received_err = nil
+
+    with_stub(vim, "system", function(argv, _, callback)
+      system_call = vim.deepcopy(argv)
+      callback({
+        code = 1,
+        stdout = "",
+        stderr = "token invalid",
+      })
+      return {}
+    end, function()
+      review_prep.ensure_github_auth(function(err)
+        received_err = err
+      end)
+
+      assert_truthy(vim.wait(1000, function()
+        return received_err ~= nil
+      end), "authentication check should complete")
+    end)
+
+    assert_equal(system_call, { "gh", "auth", "status", "-h", "github.com" }, "authentication check should use gh auth status")
+    assert_equal(
+      received_err,
+      "GitHub authentication is required: run `gh auth login -h github.com`, then retry.",
+      "invalid gh authentication should stop review preparation clearly"
+    )
+  end)
+end
+
+local function test_run_stops_before_worktree_prep_when_github_auth_fails()
+  local selected_repo = false
+
+  with_review_prep({
+    repo = {
+      select_repo_root = function()
+        selected_repo = true
+        return nil, "should not run"
+      end,
+    },
+  }, function(review_prep)
+    review_prep.ensure_github_auth = function(callback)
+      callback("GitHub authentication is required.")
+    end
+
+    local notify_calls = {}
+    with_stub(vim, "notify", function(message, level)
+      table.insert(notify_calls, { message = message, level = level })
+    end, function()
+      review_prep.run("https://github.com/Owner/Repo/pull/123", {})
+    end)
+
+    assert_equal(selected_repo, false, "worktree preparation must not start without GitHub authentication")
+    assert_equal(notify_calls[1].message, "GitHub authentication is required.", "authentication failure should be surfaced")
+    assert_equal(notify_calls[1].level, vim.log.levels.ERROR, "authentication failure should be an error")
   end)
 end
 
@@ -689,6 +787,7 @@ local function test_run_collects_from_selected_worktree_root()
       end,
     },
   }, function(review_prep)
+    allow_github_auth(review_prep)
     local original_allowlist = vim.g.copilot_prep_review_env_allowlist
     vim.g.copilot_prep_review_env_allowlist = { "backend/.env" }
 
@@ -772,6 +871,7 @@ local function test_run_rejects_collector_bundle_from_wrong_repo()
   }
 
   with_review_prep(nil, function(review_prep, helpers)
+    allow_github_auth(review_prep)
     review_prep.collect = function(pr_url, opts, callback)
       table.insert(helper_calls.collected, {
         pr_url = pr_url,
@@ -890,6 +990,7 @@ local function test_run_refresh_only_changes_collector_opts()
       end,
     },
   }, function(review_prep)
+    allow_github_auth(review_prep)
     local original_allowlist = vim.g.copilot_prep_review_env_allowlist
     vim.g.copilot_prep_review_env_allowlist = {}
 
@@ -980,7 +1081,10 @@ function M.run()
   test_build_prompt()
   test_build_prompt_caps_review_discussion_and_marks_cached_snapshot_stale()
   test_build_prompt_tolerates_null_pr_diff()
+  test_build_prompt_tolerates_json_null_pr_metadata()
   test_build_prompt_tolerates_json_null_jira_fields()
+  test_ensure_github_auth_requires_authenticated_gh()
+  test_run_stops_before_worktree_prep_when_github_auth_fails()
   test_collect_preserves_collector_contract_with_explicit_worktree_root()
   test_collect_runs_collector_from_selected_worktree_root()
   test_run_collects_from_selected_worktree_root()
