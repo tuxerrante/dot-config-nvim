@@ -276,7 +276,6 @@ return {
     opts = function(_, opts)
       -- Preserve the existing chat UX while layering local defaults.
       opts = opts or {}
-      opts.model = "gpt-5.6-terra"
       opts.tools = DEFAULT_TOOLS
       opts.system_prompt = vim.trim((opts.system_prompt or "") .. "\n\n" .. runtime.SYSTEM_PROMPT)
       opts.trusted_tools = DEFAULT_TRUSTED_TOOLS
