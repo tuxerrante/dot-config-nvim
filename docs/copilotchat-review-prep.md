@@ -32,16 +32,18 @@ current CopilotChat session.
 
 In normal use, the command now does this:
 
-1. parses the GitHub PR URL
-2. validates that the local checkout matches the PR repo
-3. creates or reuses `.worktrees/pr-<number>` as a detached review
+1. verifies `gh auth status -h github.com`; when it fails, stops and tells you
+   to run `gh auth login -h github.com`
+2. parses the GitHub PR URL
+3. validates that the local checkout matches the PR repo
+4. creates or reuses `.worktrees/pr-<number>` as a detached review
    checkout
-4. switches the current Neovim session into that worktree when it is safe to do
+5. switches the current Neovim session into that worktree when it is safe to do
    so
-5. symlinks only the explicitly allowlisted env or secret files into the target
+6. symlinks only the explicitly allowlisted env or secret files into the target
    worktree
-6. runs the existing Python collector with `--repo-root <target-worktree>`
-7. opens CopilotChat with the prepared prompt
+7. runs the existing Python collector with `--repo-root <target-worktree>`
+8. opens CopilotChat with the prepared prompt
 
 Detached HEAD is intentional here. The per-PR worktree is a review workspace,
 not a development branch.
@@ -244,7 +246,7 @@ fresh conversation fetch immediately.
 - review mode only; no general "prep any task" workflow yet
 - best results come from running the command with the repo under review already
   open in cwd or loaded buffers
-- GitHub enrichment depends on `gh`
+- `gh` must be installed and authenticated with `gh auth login -h github.com`
 - review-thread enrichment also depends on GitHub GraphQL access through `gh`
 - Jira enrichment is optional and depends on a usable token plus a resolvable
   Jira user identity
