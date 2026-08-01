@@ -528,6 +528,7 @@ local function test_build_prompt_tolerates_json_null_pr_metadata()
       },
       "repo": {
         "root": "/tmp/repo",
+        "has_git": true,
         "branch": null
       },
       "caveats": []
@@ -539,6 +540,7 @@ local function test_build_prompt_tolerates_json_null_pr_metadata()
     assert_match(prompt, "author: `unknown`", "null author should fall back")
     assert_match(prompt, "merge state: `unknown`", "null merge state should fall back")
     assert_match(prompt, "review decision: `unknown`", "null review decision should fall back")
+    assert_match(prompt, "local branch: `detached HEAD`", "null branch in a Git checkout should identify detached HEAD")
     assert_not_match(prompt, "vim.NIL", "JSON nulls must not leak into the prompt")
   end)
 end

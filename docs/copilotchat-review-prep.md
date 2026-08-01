@@ -46,7 +46,8 @@ In normal use, the command now does this:
 8. opens CopilotChat with the prepared prompt
 
 Detached HEAD is intentional here. The per-PR worktree is a review workspace,
-not a development branch.
+not a development branch. The prepared prompt labels this local state as
+`detached HEAD` rather than treating it as a missing branch.
 
 ## Repo matching and worktrees
 
