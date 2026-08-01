@@ -448,6 +448,8 @@ function M.build_prompt(bundle)
   local repo_branch = maybe_string(repo.branch)
   if repo_branch then
     table.insert(facts, bullet(string.format("local branch: `%s`", repo_branch)))
+  elseif repo.has_git == true then
+    table.insert(facts, bullet("local branch: `detached HEAD`"))
   end
 
   local changed_files = {}
