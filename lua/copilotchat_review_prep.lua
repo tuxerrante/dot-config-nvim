@@ -61,8 +61,8 @@ local function single_line(text)
   end
 
   local joined = table.concat(parts, " / ")
-  if #joined > 220 then
-    joined = joined:sub(1, 217):gsub("%s+$", "") .. "..."
+  if vim.fn.strchars(joined) > 220 then
+    joined = vim.fn.strcharpart(joined, 0, 217):gsub("%s+$", "") .. "..."
   end
   return joined
 end

@@ -369,6 +369,32 @@ local function test_build_prompt()
   end)
 end
 
+local function test_build_prompt_preserves_utf8_when_truncating_summaries()
+  with_review_prep(nil, function(review_prep)
+    local summary = string.rep("a", 216) .. "é" .. string.rep("b", 10)
+    local prompt = review_prep.build_prompt({
+      pr = {
+        url = "https://github.com/Owner/Repo/pull/123",
+        files = {},
+      },
+      rules_and_docs = {
+        {
+          provenance = "repo-doc",
+          path = "AGENTS.md",
+          excerpt = summary,
+        },
+      },
+    })
+
+    assert_match(
+      prompt,
+      string.rep("a", 216) .. "é...",
+      "prompt truncation should retain complete UTF-8 characters"
+    )
+    assert_not_match(vim.json.encode({ prompt = prompt }), "<c3>", "prompt JSON should not contain an escaped partial UTF-8 byte")
+  end)
+end
+
 local function test_build_prompt_caps_review_discussion_and_marks_cached_snapshot_stale()
   with_review_prep(nil, function(review_prep)
     local prompt = review_prep.build_prompt({
@@ -1081,6 +1107,7 @@ end
 
 function M.run()
   test_build_prompt()
+  test_build_prompt_preserves_utf8_when_truncating_summaries()
   test_build_prompt_caps_review_discussion_and_marks_cached_snapshot_stale()
   test_build_prompt_tolerates_null_pr_diff()
   test_build_prompt_tolerates_json_null_pr_metadata()
