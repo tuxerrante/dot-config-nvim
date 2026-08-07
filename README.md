@@ -179,6 +179,30 @@ experience comes from having these available on your machine:
 - `gofumpt`
 - `gotestsum` (optional; used automatically by `neotest-golang` when available)
 
+## Linuxbrew Dependencies
+
+The configured linters, formatters, language servers, and optional `rtk`
+integration are installed through Linuxbrew. Check the required tools without
+changing your system:
+
+```bash
+bash scripts/install-linuxbrew-dependencies.sh --check
+```
+
+Install missing tools with:
+
+```bash
+bash scripts/install-linuxbrew-dependencies.sh --apply
+```
+
+The script uses the official HashiCorp tap for `terraform`; all other tools are
+Homebrew core formulae. Ensure Homebrew is available in the environment that
+launches Neovim, for example:
+
+```bash
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
+```
+
 ## Contributing And Security
 
 Contributor docs live in `CONTRIBUTING.md`, including the disposable test
