@@ -19,6 +19,7 @@ customizations are intentionally opinionated around:
 - `:GoLint` is manual and scope-aware instead of running on every edit
 - `gopls` defaults are curated for large repos
 - `neotest` and lint flows surface progress instead of failing silently
+- Aerial exposes ordinary Makefile targets as navigable symbols
 - CopilotChat is split into focused read, shell, and edit workflows
 - `:CopilotPrepReview` creates a dedicated PR review worktree before collecting
   context
@@ -53,6 +54,12 @@ Instead, there is a manual command:
 
 The default scope is `pkg`, so it stays useful on large repos without
 accidentally linting everything.
+
+### Makefile symbols in Aerial
+
+The Tree-sitter `make` parser is installed automatically. A local
+`queries/make/aerial.scm` query exposes ordinary Makefile rule targets to
+Aerial while omitting special dot targets such as `.PHONY`.
 
 ### Curated `gopls` defaults
 

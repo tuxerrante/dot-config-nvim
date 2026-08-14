@@ -9,6 +9,10 @@ return {
     end,
   },
   {
+    "nvim-treesitter/nvim-treesitter",
+    opts = { ensure_installed = { "make" } },
+  },
+  {
     "nvim-lualine/lualine.nvim",
     optional = true,
     opts = function(_, opts)
