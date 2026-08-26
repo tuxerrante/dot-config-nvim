@@ -39,8 +39,6 @@ return {
         vim.cmd("botright 20new")
         local job = vim.fn.jobstart({
           vim.fn.expand("~/.local/bin/aider-aoai"),
-          "--no-fancy-input",
-          "--no-pretty",
         }, {
           cwd = root,
           term = true,
