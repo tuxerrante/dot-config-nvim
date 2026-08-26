@@ -281,6 +281,7 @@ return {
       opts.trusted_tools = DEFAULT_TRUSTED_TOOLS
       opts.remember_as_sticky = false
       opts.chat_autocomplete = false
+      opts.auto_fold = true
       opts.mappings = vim.tbl_deep_extend("force", opts.mappings or {}, {
         submit_prompt = {
           insert = "<C-j>",
