@@ -9,6 +9,7 @@ return {
       end
 
       opts.servers.gopls = vim.tbl_deep_extend("force", opts.servers.gopls or {}, {
+        mason = false, -- Use the gopls binary from PATH instead of Mason.
         settings = {
           gopls = {
             gofumpt = true,
@@ -47,25 +48,26 @@ return {
         return vim.fn.fnamemodify(gomod, ":h")
       end
 
-      local function golangcilint_target(scope)
+      local function golangcilint_target(scope, module_root)
         local filename = vim.api.nvim_buf_get_name(0)
         if filename == "" then
           return nil
         end
 
-        local dirname = vim.fn.fnamemodify(filename, ":h")
-        if scope == "file" then
-          return filename
-        end
         if scope == "repo" then
-          return go_module_root(dirname) or dirname
+          return "./..."
+        elseif scope == "file" then
+          return vim.fs.relpath(module_root, filename)
+        else -- "pkg"
+          local dirname = vim.fn.fnamemodify(filename, ":h")
+          local relative = vim.fs.relpath(module_root, dirname)
+          return relative == "." and "." or "./" .. relative
         end
-
-        return dirname
       end
 
-      local function wrap_golangcilint(linter, target, scope)
+      local function wrap_golangcilint(linter, target, scope, module_root)
         linter.args = vim.deepcopy(linter.args or {})
+        linter.cwd = module_root
         if type(linter.args[#linter.args]) == "function" then
           linter.args[#linter.args] = target
         else
@@ -100,7 +102,14 @@ return {
           return
         end
 
-        local target = golangcilint_target(scope)
+        local dirname = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":h")
+        local module_root = go_module_root(dirname)
+        if not module_root then
+          vim.notify("GoLint could not find a go.mod for the current buffer", vim.log.levels.ERROR)
+          return
+        end
+
+        local target = golangcilint_target(scope, module_root)
         if not target then
           vim.notify("GoLint could not resolve a target for the current buffer", vim.log.levels.ERROR)
           return
@@ -110,7 +119,7 @@ return {
 
         local ok_try, err = pcall(lint.try_lint, { "golangcilint" }, {
           wrap_linter = function(linter)
-            return wrap_golangcilint(linter, target, scope)
+            return wrap_golangcilint(linter, target, scope, module_root)
           end,
         })
 
