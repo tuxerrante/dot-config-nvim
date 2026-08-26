@@ -1,24 +1,48 @@
 return {
-  -- Disable markdownlint auto-formatting on save
-  -- This prevents automatic changes to markdown files
   {
     "stevearc/conform.nvim",
     opts = {
       formatters_by_ft = {
-        -- Remove markdown formatters (or set to empty)
-        -- markdown = {},
-        -- ["markdown.mdx"] = {},
+        markdown = { "prettier" },
+        ["markdown.mdx"] = { "prettier" },
       },
     },
   },
-
-  -- Optionally: keep linting diagnostics but disable auto-fix
-  -- Uncomment below if you still want to see warnings without auto-fix
   {
     "mfussenegger/nvim-lint",
+    opts = function(_, opts)
+      opts.linters_by_ft = opts.linters_by_ft or {}
+      opts.linters_by_ft.markdown = {}
+      opts.linters_by_ft["markdown.mdx"] = {}
+    end,
+  },
+  {
+    "neovim/nvim-lspconfig",
     opts = {
-      linters_by_ft = {
-        markdown = { "markdownlint-cli2" },
+      servers = {
+        rumdl = {
+          mason = false,
+          filetypes = { "markdown", "markdown.mdx" },
+          root_markers = {
+            ".rumdl.toml",
+            "rumdl.toml",
+            "pyproject.toml",
+            ".markdownlint-cli2.json",
+            ".markdownlint-cli2.jsonc",
+            ".markdownlint-cli2.yaml",
+            ".markdownlint-cli2.yml",
+            ".markdownlint.json",
+            ".markdownlint.jsonc",
+            ".markdownlint.yaml",
+            ".markdownlint.yml",
+            ".git",
+          },
+          init_options = {
+            enableLinkCompletions = false,
+            enableLinkNavigation = false,
+            enableSymbols = false,
+          },
+        },
       },
     },
   },

@@ -18,6 +18,8 @@ customizations are intentionally opinionated around:
 
 - `:GoLint` is manual and scope-aware instead of running on every edit
 - `gopls` defaults are curated for large repos
+- `rumdl` provides fast Markdown diagnostics and honors repo-local
+  `.markdownlint.json` and `.markdownlint.jsonc` files
 - `neotest` and lint flows surface progress instead of failing silently
 - CopilotChat is split into focused read, shell, and edit workflows
 - `:CopilotPrepReview` creates a dedicated PR review worktree before collecting
@@ -163,6 +165,7 @@ worth reading first:
 - `lua/copilotchat_review_prep.lua`
 - `scripts/copilot_prep_review.py`
 - `lua/plugins/go.lua`
+- `lua/plugins/markdown.lua`
 - `lua/plugins/test.lua`
 - `lua/plugins/aerial.lua`
 - `lua/plugins/typescript.lua`
@@ -178,6 +181,9 @@ experience comes from having these available on your machine:
 - `goimports`
 - `gofumpt`
 - `gotestsum` (optional; used automatically by `neotest-golang` when available)
+
+Markdown linting uses [`rumdl`](https://github.com/rvben/rumdl), which should
+also be available on `PATH`.
 
 ## Contributing And Security
 
