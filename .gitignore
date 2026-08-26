@@ -5,6 +5,7 @@ debug
 .repro
 foo.*
 *.log
+*.BKP
 data
 .DS_Store
 .worktrees/
