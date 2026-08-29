@@ -3,7 +3,24 @@ return {
   { "folke/tokyonight.nvim", opts = { style = "moon" } },
 
   -- popular alternatives (from lighter to darker)
-  { "catppuccin/nvim", name = "catppuccin" }, -- "latte" (light), "frappe", "macchiato", "mocha"
+  {
+    "catppuccin/nvim",
+    name = "catppuccin",
+    opts = {
+      custom_highlights = function(colors)
+        local function inverse_cursor()
+          return { fg = colors.none, bg = colors.none, style = { "reverse" } }
+        end
+
+        return {
+          Cursor = inverse_cursor(),
+          lCursor = inverse_cursor(),
+          CursorIM = inverse_cursor(),
+          TermCursor = inverse_cursor(),
+        }
+      end,
+    },
+  }, -- "latte" (light), "frappe", "macchiato", "mocha"
   { "rose-pine/neovim", name = "rose-pine" }, -- soft, muted palette
   { "rebelot/kanagawa.nvim" }, -- warm, earthy tones
   { "EdenEast/nightfox.nvim" }, -- includes "dayfox" (light) and "dawnfox"
