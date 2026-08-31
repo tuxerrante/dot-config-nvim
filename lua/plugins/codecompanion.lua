@@ -65,4 +65,15 @@ return {
       vim.list_extend(opts.file_types, { "codecompanion" })
     end,
   },
+  {
+    "saghen/blink.cmp",
+    optional = true,
+    opts = function(_, opts)
+      -- Disable blink's default sources inside CodeCompanion's chat buffer.
+      opts = opts or {}
+      opts.sources = opts.sources or {}
+      opts.sources.per_filetype = opts.sources.per_filetype or {}
+      opts.sources.per_filetype["codecompanion"] = {}
+    end,
+  },
 }
