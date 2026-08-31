@@ -3,6 +3,10 @@
 This is my public LazyVim setup, tuned for large Go codebases, git worktrees,
 and a quieter AI-assisted workflow.
 
+CopilotChat remains the main structured review workflow, but CodeCompanion is
+also available as a lighter alternative on the separate `<leader>C*` prefix.
+Both reuse the same GitHub Copilot authentication already configured in Neovim.
+
 It started from [LazyVim](https://github.com/LazyVim/LazyVim), but the current
 customizations are intentionally opinionated around:
 
@@ -21,6 +25,8 @@ customizations are intentionally opinionated around:
 - `neotest` and lint flows surface progress instead of failing silently
 - Aerial exposes ordinary Makefile targets as navigable symbols
 - CopilotChat is split into focused read, shell, and edit workflows
+- CodeCompanion is available as an alternative chat/inline assistant on
+  `<leader>C*`
 - `:CopilotPrepReview` creates a dedicated PR review worktree before collecting
   context
 - the top `winbar` stays minimal and only adds a small worktree cue
