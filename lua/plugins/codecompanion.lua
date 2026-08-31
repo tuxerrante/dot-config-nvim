@@ -1,7 +1,11 @@
 -- CodeCompanion: chat + inline assistant, using the Copilot adapter so it
 -- rides on the same GitHub Copilot auth as copilot.lua / CopilotChat.nvim
--- (no extra API keys needed). Kept on a separate <leader>C prefix so it
--- doesn't collide with CopilotChat's <leader>a mappings in copilot.lua.
+-- (no extra API keys needed). Nested under LazyVim's existing "+ai"
+-- <leader>a group (see copilot.lua) as its own <leader>aC subgroup, instead
+-- of a bare <leader>C prefix -- <leader>C sat one shift-key away from
+-- LazyVim's <leader>c "code" group (e.g. <leader>ca Code Action), which was
+-- an easy, confusing mistype. <leader>aC is unambiguous and reads as
+-- "ai > CodeCompanion".
 return {
   {
     "olimorris/codecompanion.nvim",
@@ -16,26 +20,29 @@ return {
       "CodeCompanionCmd",
     },
     keys = {
+      -- which-key group label for the nested CodeCompanion subgroup, same
+      -- trick LazyVim itself uses to label the top-level <leader>a "+ai" group.
+      { "<leader>aC", "", desc = "+codecompanion", mode = { "n", "v" } },
       {
-        "<leader>Cc",
+        "<leader>aCc",
         "<cmd>CodeCompanionChat Toggle<cr>",
         desc = "Toggle CodeCompanion Chat",
         mode = { "n", "v" },
       },
       {
-        "<leader>Ca",
+        "<leader>aCa",
         "<cmd>CodeCompanionActions<cr>",
         desc = "CodeCompanion Actions",
         mode = { "n", "v" },
       },
       {
-        "<leader>Ci",
+        "<leader>aCi",
         "<cmd>CodeCompanion<cr>",
         desc = "CodeCompanion Inline Prompt",
         mode = { "n", "v" },
       },
       {
-        "<leader>Cx",
+        "<leader>aCx",
         "<cmd>CodeCompanionChat Add<cr>",
         desc = "Add Selection To CodeCompanion Chat",
         mode = "v",
