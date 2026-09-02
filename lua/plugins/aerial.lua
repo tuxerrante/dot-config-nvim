@@ -1,6 +1,18 @@
 return {
   {
     "stevearc/aerial.nvim",
+    -- Buffer-wide navigation of the symbol tree (works for YAML/Helm and any
+    -- other language aerial supports), without needing the outline window
+    -- open. Lowercase = move to next/prev symbol overall (siblings, when at
+    -- the same nesting depth); uppercase = jump to the parent, moving
+    -- forwards/backwards (mirrors the `]h`/`]H`, `]c`/`]C` case convention
+    -- already used elsewhere in this config for "next" vs "outer/broader").
+    keys = {
+      { "]o", function() require("aerial").next() end, desc = "Next Symbol" },
+      { "[o", function() require("aerial").prev() end, desc = "Prev Symbol" },
+      { "]O", function() require("aerial").next_up() end, desc = "Up & Next Symbol (parent)" },
+      { "[O", function() require("aerial").prev_up() end, desc = "Up & Prev Symbol (parent)" },
+    },
     opts = function(_, opts)
       opts = opts or {}
       opts.layout = vim.tbl_deep_extend("force", opts.layout or {}, {
