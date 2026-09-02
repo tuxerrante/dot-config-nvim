@@ -6,6 +6,37 @@ return {
       opts.layout = vim.tbl_deep_extend("force", opts.layout or {}, {
         default_direction = "left",
       })
+
+      -- yaml-language-server (used directly, and by helm-ls under the hood)
+      -- reports each item of a YAML sequence as a "Module" symbol whose name
+      -- is just its numeric index (e.g. "0", "1", "2"), which makes the
+      -- outline useless for lists of objects like a Helm `applications:`
+      -- array. Relabel those using a meaningful key from the object itself
+      -- (name/id/key first, falling back to the first scalar field found),
+      -- pulled from the raw LSP symbol's `detail` (aerial doesn't keep it).
+      local label_keys = { "name", "id", "key" }
+      opts.post_parse_symbol = function(_, item, ctx)
+        if ctx.backend_name == "lsp" and item.kind == "Module" and item.name:match("^%d+$") then
+          local raw_children = ctx.symbol and ctx.symbol.children
+          if raw_children then
+            for _, key in ipairs(label_keys) do
+              for _, child in ipairs(raw_children) do
+                if child.name == key and child.detail and child.detail ~= "" then
+                  item.name = child.detail
+                  return true
+                end
+              end
+            end
+            for _, child in ipairs(raw_children) do
+              if child.detail and child.detail ~= "" then
+                item.name = ("%s: %s"):format(child.name, child.detail)
+                return true
+              end
+            end
+          end
+        end
+        return true
+      end
     end,
   },
   {
