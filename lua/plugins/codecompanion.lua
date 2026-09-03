@@ -1,11 +1,31 @@
--- CodeCompanion: chat + inline assistant, using the Copilot adapter so it
--- rides on the same GitHub Copilot auth as copilot.lua / CopilotChat.nvim
--- (no extra API keys needed). Nested under LazyVim's existing "+ai"
--- <leader>a group (see copilot.lua) as its own <leader>aC subgroup, instead
--- of a bare <leader>C prefix -- <leader>C sat one shift-key away from
--- LazyVim's <leader>c "code" group (e.g. <leader>ca Code Action), which was
--- an easy, confusing mistype. <leader>aC is unambiguous and reads as
--- "ai > CodeCompanion".
+-- CodeCompanion: chat + inline assistant, using the LiteLLM OpenAI-compatible
+-- endpoint. Nested under LazyVim's existing "+ai" <leader>a group as its own
+-- <leader>aC subgroup.
+local function litellm_adapter()
+  local adapter = require("codecompanion.adapters").extend("openai_compatible", {
+    env = {
+      api_key = "cmd:awk -F= '$1 == \"LITELLM_MASTER_KEY\" { print substr($0, index($0, \"=\") + 1) }' \"$HOME/.config/litellm/.env\"",
+      url = "cmd:awk -F= '$1 == \"LITELLM_BASE_URL\" { print substr($0, index($0, \"=\") + 1) }' \"$HOME/.config/litellm/.env\"",
+      chat_url = "/v1/chat/completions",
+      models_endpoint = "/v1/models",
+    },
+    headers = {
+      ["Content-Type"] = "application/json",
+      Authorization = ("Bearer " .. "${api_key}"),
+    },
+    schema = {
+      model = {
+        default = function()
+          local model = vim.env.LITELLM_DEFAULT_MODEL
+          return model and model ~= "" and model or "code"
+        end,
+      },
+    },
+  })
+
+  return adapter
+end
+
 return {
   {
     "olimorris/codecompanion.nvim",
@@ -20,8 +40,6 @@ return {
       "CodeCompanionCmd",
     },
     keys = {
-      -- which-key group label for the nested CodeCompanion subgroup, same
-      -- trick LazyVim itself uses to label the top-level <leader>a "+ai" group.
       { "<leader>aC", "", desc = "+codecompanion", mode = { "n", "v" } },
       {
         "<leader>aCc",
@@ -49,10 +67,15 @@ return {
       },
     },
     opts = {
+      adapters = {
+        http = {
+          litellm = litellm_adapter,
+        },
+      },
       strategies = {
-        chat = { adapter = "copilot" },
-        inline = { adapter = "copilot" },
-        cmd = { adapter = "copilot" },
+        chat = { adapter = "litellm" },
+        inline = { adapter = "litellm" },
+        cmd = { adapter = "litellm" },
       },
       display = {
         chat = {
