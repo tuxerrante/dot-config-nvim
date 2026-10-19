@@ -59,16 +59,16 @@ return {
     "nvim-lualine/lualine.nvim",
     optional = true,
     opts = function(_, opts)
-      local function is_worktree_path()
-        local filename = vim.api.nvim_buf_get_name(0)
-        return filename ~= "" and filename:find("/%.worktrees/", 1) ~= nil
-      end
-
+      -- Shows which worktree this is *and* where it points: branch, upstream,
+      -- and how far the two have drifted. See lua/worktree.lua for the
+      -- caching, since this runs on every winbar redraw.
       local worktree_component = {
         function()
-          return "🌿 worktree"
+          return require("worktree").badge()
         end,
-        cond = is_worktree_path,
+        cond = function()
+          return require("worktree").is_worktree()
+        end,
       }
 
       local filename_component = {

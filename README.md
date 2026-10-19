@@ -29,9 +29,13 @@ customizations are intentionally opinionated around:
 - `neotest` and lint flows surface progress instead of failing silently
 - Aerial exposes ordinary Makefile targets as navigable symbols
 - CodeCompanion is available as an alternative chat/inline assistant on
-  `<leader>aC*` (nested under the `<leader>a` "ai" group)
+  `<leader>aC*` (nested under the `<leader>a` "ai" group), with `<leader>ai`
+  as the everyday inline-edit key
 - `:PrepReview` creates a dedicated PR review worktree before collecting
   context
+- `octo.nvim` keeps PR review threads inline, so answering comments does not
+  mean a browser tab; `]t` jumps straight to them
+- `<leader>gw` switches between worktrees and shows what each one tracks
 - the top `winbar` stays minimal and only adds a small worktree cue
 
 ## Why This Setup Exists
@@ -114,11 +118,44 @@ instead.
 
 See `docs/review-prep.md` for the exact behavior and limitations.
 
+### GitHub PR review without leaving the editor
+
+`octo.nvim` (via the `lazyvim.plugins.extras.util.octo` extra) puts review
+threads inline in the diff: virtual text on commented lines, the full thread
+when the cursor lands on one, and `:w` to post a reply.
+
+`<leader>gv` opens the PR belonging to the current worktree as a single
+buffer, with every review thread rendered inline under the timeline. Those
+threads sit after the description and the whole timeline, so `]t` and `[t` jump
+between them directly and `<localleader>T` lists them in the picker. `<cr>` on
+a thread opens the file at the line it comments on, `<localleader>cr` replies
+and `<localleader>rt` resolves. Octo's `<cr>` PR action menu, which leads with
+"Close PR" and "Squash and Merge", moves to `<localleader>o`. That covers answering reviewers on your own PR without
+a diff layout.
+
+`<leader>gV` opens the same PR as a three-pane review diff for going through
+someone else's changes line by line. Both resolve the PR number from a
+`.worktrees/pr-<number>` directory name first, which is what the detached
+`:PrepReview` checkouts need, and fall back to `gh pr view` for the
+current branch.
+
+### Worktree switching with visible upstreams
+
+`<leader>gw` lists the repo's worktrees with the branch each one has checked
+out, its upstream, and how far the two have drifted. Picking one reuses the
+same buffer-remapping switch logic as `:PrepReview`.
+
 ### Minimal worktree-aware top bar
 
 The top `winbar` is intentionally minimal. It no longer duplicates the lower
-breadcrumb or statusline; it just shows the filename and a small `worktree`
-badge when the current file is under a git worktree.
+breadcrumb or statusline; it just shows the filename and, when the current file
+is under a git worktree, a badge naming the branch and its upstream:
+
+```text
+🌿 renovate/kyverno-3.x → origin ↓23 #1402
+```
+
+See `docs/github-pr-workflow.md` for both of these.
 
 ## Screenshots
 
@@ -161,6 +198,9 @@ worth reading first:
 - `lua/plugins/go.lua`
 - `lua/plugins/test.lua`
 - `lua/plugins/aerial.lua`
+- `lua/plugins/octo.lua`
+- `lua/octo_threads.lua`
+- `lua/worktree.lua`
 - `lua/plugins/typescript.lua`
 
 ## Notes For Go Developers
