@@ -59,6 +59,16 @@ return {
         desc = "CodeCompanion Inline Prompt",
         mode = { "n", "v" },
       },
+      -- Primary inline-edit entry point, deliberately outside the <leader>aC
+      -- subgroup: this is the everyday "change this code for me" key, and it
+      -- writes straight into the buffer instead of going through a chat turn
+      -- and a tool approval the way the Claude Code terminal does.
+      {
+        "<leader>ai",
+        "<cmd>CodeCompanion<cr>",
+        desc = "Inline Edit (CodeCompanion)",
+        mode = { "n", "v" },
+      },
       {
         "<leader>aCx",
         "<cmd>CodeCompanionChat Add<cr>",
