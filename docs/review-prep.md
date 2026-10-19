@@ -1,34 +1,36 @@
-# CopilotChat Review Prep
+# PR Review Prep
 
-This repo adds a review-focused context-prep workflow for `CopilotChat.nvim`.
+This repo adds a review-focused context-prep workflow that hands its result to
+Claude Code through `claudecode.nvim`.
 
 The main entrypoint is:
 
 ```vim
-:CopilotPrepReview <pr-url>
+:PrepReview <pr-url>
 ```
 
-Use `:CopilotPrepReview! <pr-url>` to bypass a fresh cache entry and force a new
+Use `:PrepReview! <pr-url>` to bypass a fresh cache entry and force a new
 collection pass. `!` only affects the collector cache. It does not change repo
 matching, worktree selection, switch behavior, or env bootstrap semantics.
 
 ## What it does
 
-`CopilotPrepReview` first prepares a review-specific checkout, then collects a
-compact context bundle for the first review prompt and opens CopilotChat with
-that prompt prefilled so you can edit it before sending.
+`PrepReview` first prepares a review-specific checkout, then collects a
+compact context bundle for the first review prompt and pastes it into the Claude
+Code terminal without submitting it, so you can edit it before pressing Enter.
 
-`CopilotPrepReview` is also a lazy-load command trigger for `CopilotChat.nvim`,
-so you do not need to open CopilotChat manually first. A cold start from
-`:CopilotPrepReview <pr-url>` is expected to work.
+`PrepReview` is registered at startup, so you do not need to open Claude Code
+first. When no Claude Code session is running, the command starts one, waits for
+it to come up and then pastes the prompt. A cold start from
+`:PrepReview <pr-url>` is expected to work.
 
 The workflow is intentionally split:
 
-- Lua handles the editor UX and CopilotChat handoff
-- `scripts/copilot_prep_review.py` handles deterministic collection and caching
+- Lua handles the editor UX and the Claude Code handoff
+- `scripts/pr_review_prep.py` handles deterministic collection and caching
 
-The command does **not** make the prompt sticky globally. It only seeds the
-current CopilotChat session.
+The command only seeds the prompt; nothing is made sticky and nothing is sent
+until you press Enter.
 
 In normal use, the command now does this:
 
@@ -43,7 +45,7 @@ In normal use, the command now does this:
 6. symlinks only the explicitly allowlisted env or secret files into the target
    worktree
 7. runs the existing Python collector with `--repo-root <target-worktree>`
-8. opens CopilotChat with the prepared prompt
+8. pastes the prepared prompt into the Claude Code terminal
 
 Detached HEAD is intentional here. The per-PR worktree is a review workspace,
 not a development branch. The prepared prompt labels this local state as
@@ -89,7 +91,7 @@ reopened from the review checkout and Neovim's cwd is updated to that worktree.
 Env and secret bootstrap is explicit, symlink-only, and off by default.
 
 ```lua
-vim.g.copilot_prep_review_env_allowlist = {
+vim.g.pr_review_prep_env_allowlist = {
   ".env",
   "backend/.env",
   "frontend/.env",
@@ -174,8 +176,8 @@ When auth succeeds, Jira enrichment includes:
 
 ## Handoff behavior
 
-After collection, the command opens CopilotChat and inserts a ready-to-review
-prompt containing:
+After collection, the command pastes a ready-to-review prompt into Claude Code
+containing:
 
 - PR facts
 - changed files
@@ -189,56 +191,41 @@ prompt containing:
 - Jira refs
 - degraded-mode caveats
 
-The command finishes by focusing the chat input. With the existing config in
-this repo, send it with `<C-j>`.
+The paste uses bracketed paste, so the multi-line prompt arrives as one block and
+is never submitted by an embedded newline. The Claude Code terminal takes focus
+afterwards.
 
-RTK compaction is not part of the review-prep collector itself. It only applies
-later if you use the explicit CopilotChat shell workflow from the opened review
-chat: when `rtk` is on your `PATH`, large captured shell-output snapshots are
-compacted before they go back into chat; otherwise shell mode falls back
-normally and shows the same one-time install hint for the current Neovim
-session.
+Claude Code reads files relative to the directory it was started in. The review
+worktree lives under `.worktrees/` of the primary checkout, so a session started
+at the primary checkout can read it; a session started elsewhere will ask for
+permission to read the path named in the prompt's `local repo root` fact.
 
-If you want to measure just that post-capture shell-output compaction step, run:
+Fallbacks, each reported with a warning notification:
 
-```bash
-python3 scripts/benchmark_rtk_shell_review.py
-```
+- `claudecode.nvim` is not installed, or its terminal provider runs Claude
+  outside Neovim: the prompt is copied to the unnamed register and, when
+  available, the system clipboard
+- the terminal does not appear within 10 seconds, or its channel is closed: same
+  clipboard fallback
 
-Pass one or more quoted commands to benchmark your own review-style shell
-queries. Without extra args, the script runs a small built-in review-style
-command set against the repo. If `rtk` is missing, the script degrades to
-raw-only metrics; use `--require-rtk` if you want that to fail fast instead.
-
-This is intentionally a narrow proxy, not a Copilot billing meter:
-
-- `raw` measures captured command `stdout` before RTK
-- `compacted` measures the exact live return payload: trimmed RTK `stderr` plus
-  RTK `stdout`
-- `tok~` is only a rough `chars / 4` estimate
-- it does not measure Copilot billing or full prompt size once the rest of the
-  review context is added
-
-On the isolated run that motivated this script, the built-in review command set
-reduced total chars by about 31%, and the largest built-in sample
-(`rg -n "CopilotChat|rtk|review|shell" README.md docs lua tests scripts`)
-reduced chars by about 33%. Treat those numbers as point-in-time examples, not
-guarantees: they vary with repo state, command choice, and RTK behavior.
+Two globals tune the cold start: `vim.g.pr_review_prep_boot_delay_ms` (default
+2000, how long to let the TUI start before pasting) and
+`vim.g.pr_review_prep_boot_timeout_ms` (default 10000).
 
 ## Cache behavior
 
 Bundles are cached under Neovim's cache dir:
 
 ```text
-stdpath("cache")/copilot-prep-review
+stdpath("cache")/pr-review-prep
 ```
 
 The current TTL is 15 minutes per `(repo-root, pr-url)` pair. For
-`CopilotPrepReview`, the repo root used for cache identity is the selected PR
+`PrepReview`, the repo root used for cache identity is the selected PR
 worktree root.
 
 If a cached bundle is reused, the prompt now calls out that the review
-discussion snapshot may be stale. Use `:CopilotPrepReview!` when you want a
+discussion snapshot may be stale. Use `:PrepReview!` when you want a
 fresh conversation fetch immediately.
 
 ## Limitations

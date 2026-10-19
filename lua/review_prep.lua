@@ -1,10 +1,10 @@
 local M = {}
-local review_env = require("copilotchat_review_env")
-local review_repo = require("copilotchat_review_repo")
-local review_switch = require("copilotchat_review_switch")
+local review_env = require("review_env")
+local review_repo = require("review_repo")
+local review_switch = require("review_switch")
 
 local function notify(message, level)
-  vim.notify(message, level or vim.log.levels.INFO, { title = "CopilotPrepReview" })
+  vim.notify(message, level or vim.log.levels.INFO, { title = "PrepReview" })
 end
 
 local function normalized_path(path)
@@ -20,15 +20,15 @@ local function plugin_root()
 end
 
 local function collector_path()
-  return vim.g.copilot_prep_review_collector or (plugin_root() .. "/scripts/copilot_prep_review.py")
+  return vim.g.pr_review_prep_collector or (plugin_root() .. "/scripts/pr_review_prep.py")
 end
 
 local function python_bin()
-  return vim.g.copilot_prep_review_python or "python3"
+  return vim.g.pr_review_prep_python or "python3"
 end
 
 local function cache_dir()
-  return vim.g.copilot_prep_review_cache_dir or (vim.fn.stdpath("cache") .. "/copilot-prep-review")
+  return vim.g.pr_review_prep_cache_dir or (vim.fn.stdpath("cache") .. "/pr-review-prep")
 end
 
 local function maybe_string(value)
@@ -141,7 +141,7 @@ local function prepare_worktree(pr_url, callback)
           return
         end
 
-        local allowlist = vim.g.copilot_prep_review_env_allowlist or {}
+        local allowlist = vim.g.pr_review_prep_env_allowlist or {}
         local _, env_err = review_env.bootstrap(worktree.primary_root, worktree.worktree_root, allowlist)
         if env_err then
           callback(nil, env_err)
@@ -202,23 +202,81 @@ local function validate_collected_repo_context(bundle, worktree)
   return true, nil
 end
 
-local function focus_chat_input(chat)
-  chat.chat:focus()
-  if chat.config and chat.config.auto_insert_mode then
-    vim.cmd("startinsert")
-  end
+-- How long to let a freshly launched Claude Code TUI start before pasting, and
+-- how long to wait for the terminal buffer to appear at all.
+local function boot_delay_ms()
+  return vim.g.pr_review_prep_boot_delay_ms or 2000
 end
 
-local function handoff_prompt(prompt)
-  local chat = require("CopilotChat")
-  local constants = require("CopilotChat.constants")
+local function boot_timeout_ms()
+  return vim.g.pr_review_prep_boot_timeout_ms or 10000
+end
 
-  chat.open()
-  chat.chat:add_message({
-    role = constants.ROLE.USER,
-    content = prompt,
-  }, true)
-  focus_chat_input(chat)
+local function claude_terminal()
+  local ok, terminal = pcall(require, "claudecode.terminal")
+  if not ok then
+    return nil
+  end
+  return terminal
+end
+
+-- Pastes the prompt into the Claude Code terminal without submitting it, so it
+-- can be edited before Enter. Returns false when there is no Claude Code
+-- terminal to hand it to; the caller then falls back to the clipboard.
+local function paste_into_claude(terminal, prompt)
+  return terminal.send_to_terminal(prompt, { submit = false, focus = true })
+end
+
+-- The unnamed register always gets the prompt; the system clipboard is
+-- best-effort because its provider can be missing (ssh, headless).
+local function copy_prompt(prompt)
+  vim.fn.setreg('"', prompt)
+  pcall(vim.fn.setreg, "+", prompt)
+end
+
+local function handoff_prompt(prompt, on_done)
+  local terminal = claude_terminal()
+  if not terminal then
+    copy_prompt(prompt)
+    on_done("clipboard")
+    return
+  end
+
+  if terminal.get_active_terminal_bufnr() then
+    if paste_into_claude(terminal, prompt) then
+      on_done("claude")
+    else
+      copy_prompt(prompt)
+      on_done("clipboard")
+    end
+    return
+  end
+
+  -- No session yet: start one, then paste once its TUI is reading input.
+  terminal.open()
+  local waited = 0
+  local timer = vim.uv.new_timer()
+  timer:start(
+    200,
+    200,
+    vim.schedule_wrap(function()
+      waited = waited + 200
+      local ready = terminal.get_active_terminal_bufnr() ~= nil
+      if not ready and waited < boot_timeout_ms() then
+        return
+      end
+      timer:stop()
+      timer:close()
+      vim.defer_fn(function()
+        if ready and paste_into_claude(terminal, prompt) then
+          on_done("claude")
+        else
+          copy_prompt(prompt)
+          on_done("clipboard")
+        end
+      end, ready and boot_delay_ms() or 0)
+    end)
+  )
 end
 
 local function render_section(title, rows)
@@ -393,7 +451,7 @@ local function summarize_pr_conversations(conversations, cache_hit)
   if cache_hit then
     table.insert(
       rows,
-      bullet("Review discussion snapshot may be stale because this bundle came from cache. Use `:CopilotPrepReview!` to refresh.")
+      bullet("Review discussion snapshot may be stale because this bundle came from cache. Use `:PrepReview!` to refresh.")
     )
   end
 
@@ -640,17 +698,28 @@ function M.run(pr_url, opts)
         end
 
         local prompt = M.build_prompt(bundle)
-        handoff_prompt(prompt)
-
         local cache_state = bundle.cache_hit and "cache hit" or "fresh bundle"
         local caveat_count = #(bundle.caveats or {})
-        notify(
-          string.format(
-            "Prompt prepared in CopilotChat (%s, %d caveat(s)). Press <C-j> to send.",
-            cache_state,
-            caveat_count
-          )
-        )
+        handoff_prompt(prompt, function(target)
+          if target == "claude" then
+            notify(
+              string.format(
+                "Prompt pasted into Claude Code (%s, %d caveat(s)). Edit it, then press Enter.",
+                cache_state,
+                caveat_count
+              )
+            )
+          else
+            notify(
+              string.format(
+                "No Claude Code terminal available; prompt copied to the clipboard (%s, %d caveat(s)).",
+                cache_state,
+                caveat_count
+              ),
+              vim.log.levels.WARN
+            )
+          end
+        end)
       end)
     end)
   end)
@@ -661,12 +730,12 @@ function M.setup()
     return
   end
 
-  vim.api.nvim_create_user_command("CopilotPrepReview", function(cmd)
+  vim.api.nvim_create_user_command("PrepReview", function(cmd)
     M.run(cmd.args, { refresh = cmd.bang })
   end, {
     bang = true,
     nargs = 1,
-    desc = "Prepare a CopilotChat review prompt for a GitHub pull request",
+    desc = "Prepare a review checkout and paste a review prompt into Claude Code for a GitHub pull request",
   })
 
   M._commands_registered = true

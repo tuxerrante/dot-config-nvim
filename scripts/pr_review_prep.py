@@ -1617,7 +1617,7 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = str(Path(args.repo_root).expanduser().resolve()) if args.repo_root else None
-    cache_dir = Path(args.cache_dir or (Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "nvim" / "copilot-prep-review"))
+    cache_dir = Path(args.cache_dir or (Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "nvim" / "pr-review-prep"))
     cache_file = cache_dir / f"{cache_key(args.pr_url, repo_root)}.json"
 
     if not args.refresh:

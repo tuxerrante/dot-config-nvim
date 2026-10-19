@@ -77,12 +77,11 @@ local function allow_github_auth(review_prep)
 end
 
 local function clear_review_prep_modules()
-  package.loaded.copilotchat_review_prep = nil
-  package.loaded.copilotchat_review_repo = nil
-  package.loaded.copilotchat_review_switch = nil
-  package.loaded.copilotchat_review_env = nil
-  package.loaded.CopilotChat = nil
-  package.loaded["CopilotChat.constants"] = nil
+  package.loaded.review_prep = nil
+  package.loaded.review_repo = nil
+  package.loaded.review_switch = nil
+  package.loaded.review_env = nil
+  package.loaded["claudecode.terminal"] = nil
 end
 
 local function default_helper_stubs()
@@ -136,19 +135,22 @@ end
 local function with_review_prep(stubs, fn)
   clear_review_prep_modules()
   local saved_preload = {
-    prep = package.preload.copilotchat_review_prep,
-    repo = package.preload.copilotchat_review_repo,
-    switch = package.preload.copilotchat_review_switch,
-    env = package.preload.copilotchat_review_env,
-    chat = package.preload.CopilotChat,
-    constants = package.preload["CopilotChat.constants"],
+    prep = package.preload.review_prep,
+    repo = package.preload.review_repo,
+    switch = package.preload.review_switch,
+    env = package.preload.review_env,
+    terminal = package.preload["claudecode.terminal"],
   }
 
   local helpers = default_helper_stubs()
-  helpers.chat_state = {
-    messages = {},
+  -- Fake claudecode.terminal: `active` is whether a Claude Code session is
+  -- already running; `sent` records every paste.
+  helpers.claude = {
+    active = true,
+    available = true,
     opened = 0,
-    focused = 0,
+    sent = {},
+    send_ok = true,
   }
   if stubs then
     if stubs.repo then
@@ -162,51 +164,44 @@ local function with_review_prep(stubs, fn)
     end
   end
 
-  package.preload.copilotchat_review_repo = function()
+  package.preload.review_repo = function()
     return helpers.repo
   end
-  package.preload.copilotchat_review_switch = function()
+  package.preload.review_switch = function()
     return helpers.switch
   end
-  package.preload.copilotchat_review_env = function()
+  package.preload.review_env = function()
     return helpers.env
   end
-  package.preload.CopilotChat = function()
+  package.preload["claudecode.terminal"] = function()
+    if not helpers.claude.available then
+      error("module 'claudecode.terminal' not found")
+    end
     return {
-      config = { auto_insert_mode = false },
-      open = function()
-        helpers.chat_state.opened = helpers.chat_state.opened + 1
+      get_active_terminal_bufnr = function()
+        return helpers.claude.active and 1 or nil
       end,
-      chat = {
-        focus = function()
-          helpers.chat_state.focused = helpers.chat_state.focused + 1
-        end,
-        add_message = function(_, message)
-          table.insert(helpers.chat_state.messages, message)
-        end,
-      },
-      _messages = helpers.chat_state.messages,
-    }
-  end
-  package.preload["CopilotChat.constants"] = function()
-    return {
-      ROLE = {
-        USER = "user",
-      },
+      open = function()
+        helpers.claude.opened = helpers.claude.opened + 1
+        helpers.claude.active = not helpers.claude.never_starts
+      end,
+      send_to_terminal = function(text, opts)
+        table.insert(helpers.claude.sent, { text = text, opts = opts })
+        return helpers.claude.send_ok
+      end,
     }
   end
 
   local ok, result = xpcall(function()
-    local review_prep = require("copilotchat_review_prep")
+    local review_prep = require("review_prep")
     return fn(review_prep, helpers)
   end, debug.traceback)
 
-  package.preload.copilotchat_review_prep = saved_preload.prep
-  package.preload.copilotchat_review_repo = saved_preload.repo
-  package.preload.copilotchat_review_switch = saved_preload.switch
-  package.preload.copilotchat_review_env = saved_preload.env
-  package.preload.CopilotChat = saved_preload.chat
-  package.preload["CopilotChat.constants"] = saved_preload.constants
+  package.preload.review_prep = saved_preload.prep
+  package.preload.review_repo = saved_preload.repo
+  package.preload.review_switch = saved_preload.switch
+  package.preload.review_env = saved_preload.env
+  package.preload["claudecode.terminal"] = saved_preload.terminal
   clear_review_prep_modules()
 
   if not ok then
@@ -313,7 +308,7 @@ local function test_build_prompt()
         },
         resolved = {
           {
-            label = "tests/test_copilot_prep_review.py:210",
+            label = "tests/test_pr_review_prep.py:210",
             summary = "Earlier request for a stale-cache test was already addressed.",
           },
         },
@@ -424,7 +419,7 @@ local function test_build_prompt_caps_review_discussion_and_marks_cached_snapsho
     )
     assert_match(
       prompt,
-      "Review discussion snapshot may be stale because this bundle came from cache. Use `:CopilotPrepReview!` to refresh.",
+      "Review discussion snapshot may be stale because this bundle came from cache. Use `:PrepReview!` to refresh.",
       "prompt should call out cached conversation snapshots explicitly"
     )
   end)
@@ -476,10 +471,10 @@ local function test_collect_preserves_collector_contract_with_explicit_worktree_
     assert_equal(system_call, {
       argv = {
         "python3",
-        vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h") .. "/scripts/copilot_prep_review.py",
+        vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h") .. "/scripts/pr_review_prep.py",
         "https://github.com/Owner/Repo/pull/123",
         "--cache-dir",
-        vim.fn.stdpath("cache") .. "/copilot-prep-review",
+        vim.fn.stdpath("cache") .. "/pr-review-prep",
         "--repo-root",
         "/primary/repo/.worktrees/pr-123",
         "--refresh",
@@ -653,7 +648,7 @@ end
 
 local function test_collect_runs_collector_from_selected_worktree_root()
   with_review_prep(nil, function(review_prep)
-    with_temp_dir("copilot-review-collector", function(root)
+    with_temp_dir("review-collector", function(root)
       local source_root = vim.fs.joinpath(root, "source")
       local target_root = vim.fs.joinpath(root, "target", ".worktrees", "pr-123")
       local collector = vim.fs.joinpath(root, "collector.py")
@@ -686,11 +681,11 @@ local function test_collect_runs_collector_from_selected_worktree_root()
         "}))",
       }, "\n"))
 
-      local original_collector = vim.g.copilot_prep_review_collector
-      local original_cache_dir = vim.g.copilot_prep_review_cache_dir
+      local original_collector = vim.g.pr_review_prep_collector
+      local original_cache_dir = vim.g.pr_review_prep_cache_dir
       local original_cwd = vim.uv.cwd()
-      vim.g.copilot_prep_review_collector = collector
-      vim.g.copilot_prep_review_cache_dir = cache_dir
+      vim.g.pr_review_prep_collector = collector
+      vim.g.pr_review_prep_cache_dir = cache_dir
       vim.cmd("cd " .. vim.fn.fnameescape(source_root))
 
       local received_bundle = nil
@@ -707,8 +702,8 @@ local function test_collect_runs_collector_from_selected_worktree_root()
         return received_bundle ~= nil or received_err ~= nil
       end)
 
-      vim.g.copilot_prep_review_collector = original_collector
-      vim.g.copilot_prep_review_cache_dir = original_cache_dir
+      vim.g.pr_review_prep_collector = original_collector
+      vim.g.pr_review_prep_cache_dir = original_cache_dir
       vim.cmd("cd " .. vim.fn.fnameescape(original_cwd))
 
       assert_truthy(completed, "collect callback should complete with the fake collector")
@@ -790,8 +785,8 @@ local function test_run_collects_from_selected_worktree_root()
     },
   }, function(review_prep)
     allow_github_auth(review_prep)
-    local original_allowlist = vim.g.copilot_prep_review_env_allowlist
-    vim.g.copilot_prep_review_env_allowlist = { "backend/.env" }
+    local original_allowlist = vim.g.pr_review_prep_env_allowlist
+    vim.g.pr_review_prep_env_allowlist = { "backend/.env" }
 
     review_prep.collect = function(pr_url, opts, callback)
       table.insert(helper_calls.collected, {
@@ -824,7 +819,7 @@ local function test_run_collects_from_selected_worktree_root()
       review_prep.run("https://github.com/Owner/Repo/pull/123", {})
     end)
 
-    vim.g.copilot_prep_review_env_allowlist = original_allowlist
+    vim.g.pr_review_prep_env_allowlist = original_allowlist
 
     assert_equal(helper_calls.parsed, {
       "https://github.com/Owner/Repo/pull/123",
@@ -888,9 +883,9 @@ local function test_run_rejects_collector_bundle_from_wrong_repo()
           files = {},
         },
         repo = {
-          root = "/Users/alessandroaffinito/.config/nvim/.worktrees/copilot-prep-review",
+          root = "/Users/alessandroaffinito/.config/nvim/.worktrees/pr-review-prep",
           owner_repo = "tuxerrante/dot-config-nvim",
-          branch = "alessandro/copilot-prep-review",
+          branch = "alessandro/pr-review-prep",
           has_git = true,
         },
         caveats = {},
@@ -916,8 +911,8 @@ local function test_run_rejects_collector_bundle_from_wrong_repo()
         },
       },
     }, "run should still collect against the resolved PR worktree root before validating the bundle")
-    assert_equal(#helpers.chat_state.messages, 0, "mismatched repo bundle should not be handed off to CopilotChat")
-    assert_equal(helpers.chat_state.opened, 0, "mismatched repo bundle should not open CopilotChat")
+    assert_equal(#helpers.claude.sent, 0, "mismatched repo bundle should not be handed off to Claude Code")
+    assert_equal(helpers.claude.opened, 0, "mismatched repo bundle should not open Claude Code")
     assert_equal(notify_calls[1].message, "Collecting review context bundle...", "run should still emit the collection progress notification")
     assert_match(
       notify_calls[2].message,
@@ -993,8 +988,8 @@ local function test_run_refresh_only_changes_collector_opts()
     },
   }, function(review_prep)
     allow_github_auth(review_prep)
-    local original_allowlist = vim.g.copilot_prep_review_env_allowlist
-    vim.g.copilot_prep_review_env_allowlist = {}
+    local original_allowlist = vim.g.pr_review_prep_env_allowlist
+    vim.g.pr_review_prep_env_allowlist = {}
 
     review_prep.collect = function(pr_url, opts, callback)
       table.insert(helper_calls.collected, {
@@ -1021,7 +1016,7 @@ local function test_run_refresh_only_changes_collector_opts()
       review_prep.run("https://github.com/Owner/Repo/pull/123", { refresh = true })
     end)
 
-    vim.g.copilot_prep_review_env_allowlist = original_allowlist
+    vim.g.pr_review_prep_env_allowlist = original_allowlist
 
     assert_equal(helper_calls.selected, {
       "https://github.com/Owner/Repo/pull/123",
@@ -1071,11 +1066,121 @@ local function test_run_refresh_only_changes_collector_opts()
   end)
 end
 
+-- Runs the full flow against a canned bundle and returns the notifications.
+local function run_with_canned_bundle(review_prep)
+  allow_github_auth(review_prep)
+  review_prep.collect = function(pr_url, _opts, callback)
+    callback({
+      pr = { url = pr_url, title = "Example", number = 123, owner_repo = "Owner/Repo", files = {} },
+      repo = {
+        root = "/primary/repo/.worktrees/pr-123",
+        owner_repo = "Owner/Repo",
+        has_git = true,
+      },
+      caveats = {},
+    }, nil)
+  end
+
+  local notify_calls = {}
+  with_stub(vim, "notify", function(message, level)
+    table.insert(notify_calls, { message = message, level = level })
+  end, function()
+    review_prep.run("https://github.com/Owner/Repo/pull/123", {})
+  end)
+  return notify_calls
+end
+
+local function test_run_pastes_prompt_into_running_claude_terminal_without_submitting()
+  with_review_prep(nil, function(review_prep, helpers)
+    local notify_calls = run_with_canned_bundle(review_prep)
+
+    assert_equal(helpers.claude.opened, 0, "a running Claude Code session should be reused, not reopened")
+    assert_equal(#helpers.claude.sent, 1, "the prompt should be pasted exactly once")
+    assert_equal(
+      helpers.claude.sent[1].opts,
+      { submit = false, focus = true },
+      "the prompt must stay editable (no submit) and the terminal should take focus"
+    )
+    assert_match(helpers.claude.sent[1].text, "Review GitHub PR", "the pasted text should be the review prompt")
+    assert_match(notify_calls[#notify_calls].message, "pasted into Claude Code", "run should say where the prompt went")
+  end)
+end
+
+local function test_run_starts_claude_terminal_when_none_is_running()
+  local saved_delay = vim.g.pr_review_prep_boot_delay_ms
+  vim.g.pr_review_prep_boot_delay_ms = 10
+  with_review_prep(nil, function(review_prep, helpers)
+    helpers.claude.active = false
+    with_stub(vim, "notify", function() end, function()
+      run_with_canned_bundle(review_prep)
+      assert_truthy(
+        vim.wait(2000, function()
+          return #helpers.claude.sent == 1
+        end, 20),
+        "the prompt should be pasted once the freshly opened Claude Code terminal is ready"
+      )
+    end)
+    assert_equal(helpers.claude.opened, 1, "a missing Claude Code session should be started once")
+  end)
+  vim.g.pr_review_prep_boot_delay_ms = saved_delay
+end
+
+local function test_run_falls_back_to_clipboard_when_claude_never_starts()
+  local saved_timeout = vim.g.pr_review_prep_boot_timeout_ms
+  vim.g.pr_review_prep_boot_timeout_ms = 300
+  with_review_prep(nil, function(review_prep, helpers)
+    helpers.claude.active = false
+    helpers.claude.never_starts = true
+    local notify_calls = {}
+    with_stub(vim, "notify", function(message, level)
+      table.insert(notify_calls, { message = message, level = level })
+    end, function()
+      run_with_canned_bundle(review_prep)
+      assert_truthy(
+        vim.wait(3000, function()
+          for _, call in ipairs(notify_calls) do
+            if call.message:find("copied to the clipboard", 1, true) then
+              return true
+            end
+          end
+          return false
+        end, 20),
+        "a Claude Code terminal that never appears should end in the clipboard fallback"
+      )
+    end)
+    assert_equal(#helpers.claude.sent, 0, "nothing can be pasted into a terminal that never started")
+    assert_match(vim.fn.getreg('"'), "Review GitHub PR", "the prompt should still be recoverable from a register")
+  end)
+  vim.g.pr_review_prep_boot_timeout_ms = saved_timeout
+end
+
+local function test_run_falls_back_to_clipboard_without_claudecode()
+  with_review_prep(nil, function(review_prep, helpers)
+    helpers.claude.available = false
+    local notify_calls = run_with_canned_bundle(review_prep)
+
+    assert_match(vim.fn.getreg('"'), "Review GitHub PR", "the prompt should land in the unnamed register")
+    local last = notify_calls[#notify_calls]
+    assert_match(last.message, "copied to the clipboard", "run should say it fell back to the clipboard")
+    assert_equal(last.level, vim.log.levels.WARN, "the fallback should be a warning, not a silent success")
+  end)
+end
+
+local function test_run_falls_back_to_clipboard_when_claude_channel_is_closed()
+  with_review_prep(nil, function(review_prep, helpers)
+    helpers.claude.send_ok = false
+    local notify_calls = run_with_canned_bundle(review_prep)
+
+    assert_match(vim.fn.getreg('"'), "Review GitHub PR", "a failed paste should keep the prompt in a register")
+    assert_match(notify_calls[#notify_calls].message, "copied to the clipboard", "a failed paste should be reported")
+  end)
+end
+
 local function test_setup_registers_command()
   with_review_prep(nil, function(review_prep)
     review_prep.setup()
     local commands = vim.api.nvim_get_commands({ builtin = false })
-    assert_truthy(commands.CopilotPrepReview ~= nil, "CopilotPrepReview command should be registered")
+    assert_truthy(commands.PrepReview ~= nil, "PrepReview command should be registered")
   end)
 end
 
@@ -1092,8 +1197,13 @@ function M.run()
   test_run_collects_from_selected_worktree_root()
   test_run_rejects_collector_bundle_from_wrong_repo()
   test_run_refresh_only_changes_collector_opts()
+  test_run_pastes_prompt_into_running_claude_terminal_without_submitting()
+  test_run_starts_claude_terminal_when_none_is_running()
+  test_run_falls_back_to_clipboard_when_claude_never_starts()
+  test_run_falls_back_to_clipboard_without_claudecode()
+  test_run_falls_back_to_clipboard_when_claude_channel_is_closed()
   test_setup_registers_command()
-  print("PASS copilotchat_review_prep")
+  print("PASS review_prep")
 end
 
 return M

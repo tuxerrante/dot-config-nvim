@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-from scripts import copilot_prep_review
+from scripts import pr_review_prep
 
 
 class CollectQualityGatesTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class CollectQualityGatesTests(unittest.TestCase):
             """
         )
 
-        gates = copilot_prep_review.collect_quality_gates(repo_root, [])
+        gates = pr_review_prep.collect_quality_gates(repo_root, [])
 
         self.assertEqual(
             gates,
@@ -55,7 +55,7 @@ class CollectQualityGatesTests(unittest.TestCase):
             """
         )
 
-        gates = copilot_prep_review.collect_quality_gates(repo_root, [])
+        gates = pr_review_prep.collect_quality_gates(repo_root, [])
 
         self.assertEqual(
             gates,
@@ -88,7 +88,7 @@ class CollectQualityGatesTests(unittest.TestCase):
             """
         )
 
-        gates = copilot_prep_review.collect_quality_gates(repo_root, [])
+        gates = pr_review_prep.collect_quality_gates(repo_root, [])
 
         self.assertEqual(
             gates,
@@ -121,7 +121,7 @@ class CollectQualityGatesTests(unittest.TestCase):
             """
         )
 
-        gates = copilot_prep_review.collect_quality_gates(repo_root, [])
+        gates = pr_review_prep.collect_quality_gates(repo_root, [])
 
         self.assertEqual(
             gates,
@@ -175,10 +175,10 @@ class GithubDiffContextTests(unittest.TestCase):
                 return {"ok": True, "code": 0, "stdout": patch_output, "stderr": ""}
             raise AssertionError(f"unexpected command: {argv!r}")
 
-        with mock.patch.object(copilot_prep_review, "command_exists", return_value=True), mock.patch.object(
-            copilot_prep_review, "run_command", side_effect=fake_run
+        with mock.patch.object(pr_review_prep, "command_exists", return_value=True), mock.patch.object(
+            pr_review_prep, "run_command", side_effect=fake_run
         ):
-            diff, caveats = copilot_prep_review.gh_pr_diff_context(
+            diff, caveats = pr_review_prep.gh_pr_diff_context(
                 "https://github.com/Azure/ARO-RP/pull/5009", pr_meta
             )
 
@@ -199,8 +199,8 @@ class PrConversationCollectionTests(unittest.TestCase):
             "title": "Add prior review discussion prep",
             "body": "Includes refreshed bundle caveats and prompt compaction.",
             "files": {
-                "lua/copilotchat_review_prep.lua",
-                "scripts/copilot_prep_review.py",
+                "lua/review_prep.lua",
+                "scripts/pr_review_prep.py",
             },
         }
 
@@ -214,7 +214,7 @@ class PrConversationCollectionTests(unittest.TestCase):
                                 {
                                     "isResolved": False,
                                     "isOutdated": False,
-                                    "path": "lua/copilotchat_review_prep.lua",
+                                    "path": "lua/review_prep.lua",
                                     "line": 87,
                                     "startLine": None,
                                     "comments": {
@@ -240,7 +240,7 @@ class PrConversationCollectionTests(unittest.TestCase):
                                 {
                                     "isResolved": False,
                                     "isOutdated": False,
-                                    "path": "scripts/copilot_prep_review.py",
+                                    "path": "scripts/pr_review_prep.py",
                                     "line": 1218,
                                     "startLine": None,
                                     "comments": {
@@ -256,7 +256,7 @@ class PrConversationCollectionTests(unittest.TestCase):
                                 {
                                     "isResolved": True,
                                     "isOutdated": False,
-                                    "path": "tests/copilotchat_review_prep.lua",
+                                    "path": "tests/review_prep.lua",
                                     "line": 301,
                                     "startLine": None,
                                     "comments": {
@@ -277,7 +277,7 @@ class PrConversationCollectionTests(unittest.TestCase):
                                 {
                                     "isResolved": True,
                                     "isOutdated": False,
-                                    "path": "docs/copilotchat-review-prep.md",
+                                    "path": "docs/review-prep.md",
                                     "line": 198,
                                     "startLine": None,
                                     "comments": {
@@ -373,10 +373,10 @@ class PrConversationCollectionTests(unittest.TestCase):
                 return {"ok": True, "code": 0, "stdout": json.dumps(issue_comments_payload), "stderr": ""}
             raise AssertionError(f"unexpected command: {argv!r}")
 
-        with mock.patch.object(copilot_prep_review, "command_exists", return_value=True), mock.patch.object(
-            copilot_prep_review, "run_command", side_effect=fake_run
+        with mock.patch.object(pr_review_prep, "command_exists", return_value=True), mock.patch.object(
+            pr_review_prep, "run_command", side_effect=fake_run
         ):
-            conversations, caveats = copilot_prep_review.collect_pr_conversations(self.pr_meta())
+            conversations, caveats = pr_review_prep.collect_pr_conversations(self.pr_meta())
 
         self.assertEqual(caveats, [])
         self.assertEqual(conversations["source"], "github-pr-discussion")
@@ -390,15 +390,15 @@ class PrConversationCollectionTests(unittest.TestCase):
         self.assertEqual(
             [item["label"] for item in conversations["unresolved"]],
             [
-                "lua/copilotchat_review_prep.lua:87",
-                "scripts/copilot_prep_review.py:1218",
+                "lua/review_prep.lua:87",
+                "scripts/pr_review_prep.py:1218",
             ],
         )
         self.assertEqual(
             [item["label"] for item in conversations["resolved"]],
             [
-                "tests/copilotchat_review_prep.lua:301",
-                "docs/copilotchat-review-prep.md:198",
+                "tests/review_prep.lua:301",
+                "docs/review-prep.md:198",
             ],
         )
         self.assertEqual(
@@ -417,12 +417,12 @@ class PrConversationCollectionTests(unittest.TestCase):
         self.assertIn("standalone review bodies excluded", top_level_summaries)
 
     def test_degrades_cleanly_when_github_thread_fetch_fails(self) -> None:
-        with mock.patch.object(copilot_prep_review, "command_exists", return_value=True), mock.patch.object(
-            copilot_prep_review,
+        with mock.patch.object(pr_review_prep, "command_exists", return_value=True), mock.patch.object(
+            pr_review_prep,
             "run_command",
             return_value={"ok": False, "code": 1, "stdout": "", "stderr": "HTTP 401: authentication required"},
         ):
-            conversations, caveats = copilot_prep_review.collect_pr_conversations(self.pr_meta())
+            conversations, caveats = pr_review_prep.collect_pr_conversations(self.pr_meta())
 
         self.assertEqual(conversations["source"], "github-pr-discussion")
         self.assertEqual(conversations["fetched_via"], "graphql+issuecomment")

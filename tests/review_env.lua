@@ -67,8 +67,8 @@ local function lstat_type(path)
 end
 
 local function test_validate_allowlist_entry_accepts_repo_relative_file()
-  package.loaded.copilotchat_review_env = nil
-  local env = require("copilotchat_review_env")
+  package.loaded.review_env = nil
+  local env = require("review_env")
 
   local ok, err = env.validate_allowlist_entry("backend/.env")
   assert_equal(ok, true, "repo-relative file path should be accepted")
@@ -76,8 +76,8 @@ local function test_validate_allowlist_entry_accepts_repo_relative_file()
 end
 
 local function test_validate_allowlist_entry_rejects_invalid_entries()
-  package.loaded.copilotchat_review_env = nil
-  local env = require("copilotchat_review_env")
+  package.loaded.review_env = nil
+  local env = require("review_env")
 
   local invalid = {
     "",
@@ -95,10 +95,10 @@ local function test_validate_allowlist_entry_rejects_invalid_entries()
 end
 
 local function test_bootstrap_links_missing_targets_from_primary_root()
-  package.loaded.copilotchat_review_env = nil
-  local env = require("copilotchat_review_env")
+  package.loaded.review_env = nil
+  local env = require("review_env")
 
-  with_temp_dir("copilot-review-env-link", function(root)
+  with_temp_dir("review-env-link", function(root)
     local primary_root = vim.fs.joinpath(root, "primary")
     local target_root = vim.fs.joinpath(root, "repo", ".worktrees", "pr-123")
     local relpath = "nested/.env"
@@ -118,10 +118,10 @@ local function test_bootstrap_links_missing_targets_from_primary_root()
 end
 
 local function test_bootstrap_skips_missing_source_files()
-  package.loaded.copilotchat_review_env = nil
-  local env = require("copilotchat_review_env")
+  package.loaded.review_env = nil
+  local env = require("review_env")
 
-  with_temp_dir("copilot-review-env-missing", function(root)
+  with_temp_dir("review-env-missing", function(root)
     local primary_root = vim.fs.joinpath(root, "primary")
     local target_root = vim.fs.joinpath(root, "repo", ".worktrees", "pr-123")
 
@@ -137,10 +137,10 @@ local function test_bootstrap_skips_missing_source_files()
 end
 
 local function test_bootstrap_reuses_matching_symlink()
-  package.loaded.copilotchat_review_env = nil
-  local env = require("copilotchat_review_env")
+  package.loaded.review_env = nil
+  local env = require("review_env")
 
-  with_temp_dir("copilot-review-env-reuse", function(root)
+  with_temp_dir("review-env-reuse", function(root)
     local primary_root = vim.fs.joinpath(root, "primary")
     local target_root = vim.fs.joinpath(root, "repo", ".worktrees", "pr-123")
     local relpath = ".env"
@@ -162,10 +162,10 @@ local function test_bootstrap_reuses_matching_symlink()
 end
 
 local function test_bootstrap_rejects_conflicting_real_file()
-  package.loaded.copilotchat_review_env = nil
-  local env = require("copilotchat_review_env")
+  package.loaded.review_env = nil
+  local env = require("review_env")
 
-  with_temp_dir("copilot-review-env-conflict-file", function(root)
+  with_temp_dir("review-env-conflict-file", function(root)
     local primary_root = vim.fs.joinpath(root, "primary")
     local target_root = vim.fs.joinpath(root, "repo", ".worktrees", "pr-123")
     local relpath = ".env"
@@ -180,10 +180,10 @@ local function test_bootstrap_rejects_conflicting_real_file()
 end
 
 local function test_bootstrap_rejects_conflicting_symlink()
-  package.loaded.copilotchat_review_env = nil
-  local env = require("copilotchat_review_env")
+  package.loaded.review_env = nil
+  local env = require("review_env")
 
-  with_temp_dir("copilot-review-env-conflict-link", function(root)
+  with_temp_dir("review-env-conflict-link", function(root)
     local primary_root = vim.fs.joinpath(root, "primary")
     local other_root = vim.fs.joinpath(root, "other")
     local target_root = vim.fs.joinpath(root, "repo", ".worktrees", "pr-123")
@@ -211,7 +211,7 @@ function M.run()
   test_bootstrap_reuses_matching_symlink()
   test_bootstrap_rejects_conflicting_real_file()
   test_bootstrap_rejects_conflicting_symlink()
-  print("PASS copilotchat_review_env")
+  print("PASS review_env")
 end
 
 return M

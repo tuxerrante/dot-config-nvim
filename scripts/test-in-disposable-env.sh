@@ -64,14 +64,12 @@ echo "Restoring plugins in disposable XDG dirs..."
 echo "Running Python tests..."
 (
   cd "$config_root"
-  "$python_bin" -m unittest tests.test_copilot_prep_review
+  "$python_bin" -m unittest tests.test_pr_review_prep
 )
 
-run_lua_test "tests.copilot_plugin_spec"
-run_lua_test "tests.copilotchat_runtime"
-run_lua_test "tests.copilotchat_review_env"
-run_lua_test "tests.copilotchat_review_repo"
-run_lua_test "tests.copilotchat_review_switch"
-run_lua_test "tests.copilotchat_review_prep"
+run_lua_test "tests.review_env"
+run_lua_test "tests.review_repo"
+run_lua_test "tests.review_switch"
+run_lua_test "tests.review_prep"
 
 echo "All disposable-environment tests passed."

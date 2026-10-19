@@ -125,10 +125,10 @@ local function make_switch_fixture(root)
 end
 
 local function test_clean_switch_reopens_matching_paths_and_skips_missing()
-  package.loaded.copilotchat_review_switch = nil
-  local switcher = require("copilotchat_review_switch")
+  package.loaded.review_switch = nil
+  local switcher = require("review_switch")
 
-  with_temp_dir("copilot-review-switch", function(root)
+  with_temp_dir("review-switch", function(root)
     local fixture = make_switch_fixture(root)
     cleanup_buffers()
 
@@ -162,10 +162,10 @@ local function test_clean_switch_reopens_matching_paths_and_skips_missing()
 end
 
 local function test_dirty_repo_buffer_cancel_keeps_unsaved_edits()
-  package.loaded.copilotchat_review_switch = nil
-  local switcher = require("copilotchat_review_switch")
+  package.loaded.review_switch = nil
+  local switcher = require("review_switch")
 
-  with_temp_dir("copilot-review-switch", function(root)
+  with_temp_dir("review-switch", function(root)
     local fixture = make_switch_fixture(root)
     cleanup_buffers()
 
@@ -204,10 +204,10 @@ local function test_dirty_repo_buffer_cancel_keeps_unsaved_edits()
 end
 
 local function test_dirty_repo_buffer_save_and_switch_writes_source_first()
-  package.loaded.copilotchat_review_switch = nil
-  local switcher = require("copilotchat_review_switch")
+  package.loaded.review_switch = nil
+  local switcher = require("review_switch")
 
-  with_temp_dir("copilot-review-switch", function(root)
+  with_temp_dir("review-switch", function(root)
     local fixture = make_switch_fixture(root)
     cleanup_buffers()
 
@@ -249,7 +249,7 @@ function M.run()
   test_clean_switch_reopens_matching_paths_and_skips_missing()
   test_dirty_repo_buffer_cancel_keeps_unsaved_edits()
   test_dirty_repo_buffer_save_and_switch_writes_source_first()
-  print("PASS copilotchat_review_switch")
+  print("PASS review_switch")
 end
 
 return M

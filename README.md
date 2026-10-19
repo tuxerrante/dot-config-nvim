@@ -1,14 +1,15 @@
-# LazyVim for Go + CopilotChat
+# LazyVim for Go + Claude Code
 
 This is my public LazyVim setup, tuned for large Go codebases, git worktrees,
 and a quieter AI-assisted workflow.
 
-CopilotChat remains the main structured review workflow, but CodeCompanion is
-also available as a lighter alternative, nested under the existing `<leader>a`
-"ai" group on `<leader>aC*` (kept off a bare `<leader>C*` prefix since that sat
+Claude Code runs in a side terminal through
+[`claudecode.nvim`](https://github.com/coder/claudecode.nvim) on `<leader>a`.
+CodeCompanion is also available as a lighter inline assistant, nested under the
+same group on `<leader>aC*` (kept off a bare `<leader>C*` prefix since that sat
 one shift-key away from LazyVim's `<leader>c` "code" group, e.g. `<leader>ca`
-Code Action — an easy, confusing mistype). Both reuse the same GitHub Copilot
-authentication already configured in Neovim.
+Code Action — an easy, confusing mistype). It talks to a LiteLLM
+OpenAI-compatible endpoint, so it does not depend on Copilot.
 
 It started from [LazyVim](https://github.com/LazyVim/LazyVim), but the current
 customizations are intentionally opinionated around:
@@ -16,7 +17,7 @@ customizations are intentionally opinionated around:
 - Go development on large monorepos and worktree-heavy repos
 - manual, scoped linting instead of aggressive background `golangci-lint`
 - visible progress for async test and command workflows
-- quieter `CopilotChat.nvim` defaults with safer tool behavior
+- a PR review workflow that prepares a worktree and hands the context to Claude Code
 
 > Want to try it without replacing your current Neovim setup? Clone it into a
 > separate app profile and launch it with `NVIM_APPNAME`.
@@ -27,10 +28,9 @@ customizations are intentionally opinionated around:
 - `gopls` defaults are curated for large repos
 - `neotest` and lint flows surface progress instead of failing silently
 - Aerial exposes ordinary Makefile targets as navigable symbols
-- CopilotChat is split into focused read, shell, and edit workflows
 - CodeCompanion is available as an alternative chat/inline assistant on
   `<leader>aC*` (nested under the `<leader>a` "ai" group)
-- `:CopilotPrepReview` creates a dedicated PR review worktree before collecting
+- `:PrepReview` creates a dedicated PR review worktree before collecting
   context
 - the top `winbar` stays minimal and only adds a small worktree cue
 
@@ -87,49 +87,32 @@ notifications instead of disappearing into the background.
 For Go tests specifically, `neotest-golang` prefers `gotestsum` when it is
 installed and falls back to the standard `go test` runner otherwise.
 
-### Quieter, safer CopilotChat defaults
-
-The `CopilotChat.nvim` workflow is split into focused modes:
-
-- default read/review flow
-- explicit shell flow
-- explicit edit flow
-- optional Caveman post-processing flow
-
-The default tool policy prefers safe repo inspection and avoids dumping full
-file contents into chat unless needed.
-
-If `rtk` is on your `PATH`, the explicit shell tools (`bash_safe` / `bash`)
-post-process large captured output snapshots before they go back into
-CopilotChat. The original command still runs normally first; `rtk` only
-compacts oversized output after capture. If `rtk` is not installed, shell mode
-still works normally and shows a small one-time install hint for the current
-Neovim session.
-
 ### PR review prep with a dedicated worktree
 
-There is a review-focused command for seeding the first CopilotChat prompt from
+There is a review-focused command for seeding the first Claude Code prompt from
 deterministic repo context plus optional GitHub and Jira enrichment:
 
 ```vim
-:CopilotPrepReview https://github.com/owner/repo/pull/123
+:PrepReview https://github.com/owner/repo/pull/123
 ```
 
-Use `:CopilotPrepReview!` to refresh the cached bundle. `!` only affects the
+Use `:PrepReview!` to refresh the cached bundle. `!` only affects the
 collector cache. It does not change repo matching, worktree selection, switch
 behavior, or env bootstrap semantics.
 
-`CopilotPrepReview` requires an authenticated GitHub CLI before it starts:
+`PrepReview` requires an authenticated GitHub CLI before it starts:
 run `gh auth login -h github.com` if needed. It then validates the matching
 local repo, creates or reuses a detached `.worktrees/pr-<number>` review
 checkout, safely switches the current Neovim session into that worktree,
 bootstraps only explicitly allowlisted env symlinks, then collects review
-context against the selected worktree before opening CopilotChat.
+context against the selected worktree before handing it to Claude Code.
 
-The prompt is inserted into the current CopilotChat session instead of being
-made globally sticky.
+The prompt is pasted into the running Claude Code terminal (started first when
+none is running) without being submitted, so you can edit it before pressing
+Enter. When `claudecode.nvim` is unavailable it is copied to the clipboard
+instead.
 
-See `docs/copilotchat-review-prep.md` for the exact behavior and limitations.
+See `docs/review-prep.md` for the exact behavior and limitations.
 
 ### Minimal worktree-aware top bar
 
@@ -172,12 +155,9 @@ LazyVim handles plugin bootstrap on first launch.
 If you want to copy ideas instead of the whole config, these are the main files
 worth reading first:
 
-- `lua/plugins/copilot.lua`
-- `lua/copilotchat_runtime.lua`
-- `lua/copilotchat_pretty.lua`
-- `lua/copilotchat_history.lua`
-- `lua/copilotchat_review_prep.lua`
-- `scripts/copilot_prep_review.py`
+- `lua/plugins/claude.lua`
+- `lua/review_prep.lua`
+- `scripts/pr_review_prep.py`
 - `lua/plugins/go.lua`
 - `lua/plugins/test.lua`
 - `lua/plugins/aerial.lua`
@@ -197,8 +177,7 @@ experience comes from having these available on your machine:
 
 ## Linuxbrew Dependencies
 
-The configured linters, formatters, language servers, and optional `rtk`
-integration are installed through Linuxbrew. Check the required tools without
+The configured linters, formatters, and language servers are installed through Linuxbrew. Check the required tools without
 changing your system:
 
 ```bash

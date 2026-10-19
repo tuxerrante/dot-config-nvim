@@ -217,8 +217,8 @@ local function with_repo_env(opts, fn)
 end
 
 local function test_parse_pr_url()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
 
   local parsed, err = review_repo.parse_pr_url("https://github.com/owner-name/repo_name/pull/123/")
   assert_no_error(err, "valid PR URL should not return an error")
@@ -238,8 +238,8 @@ local function test_parse_pr_url()
 end
 
 local function test_normalize_github_remote()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
 
   assert_equal(review_repo.normalize_github_remote("https://github.com/Owner/Repo.git"), "Owner/Repo", "https remote should normalize")
   assert_equal(review_repo.normalize_github_remote("git@github.com:Owner/Repo.git"), "Owner/Repo", "scp remote should normalize")
@@ -248,8 +248,8 @@ local function test_normalize_github_remote()
 end
 
 local function test_select_repo_root_prefers_cwd()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -285,8 +285,8 @@ local function test_select_repo_root_prefers_cwd()
 end
 
 local function test_select_repo_root_falls_back_to_buffers()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -332,8 +332,8 @@ local function test_select_repo_root_falls_back_to_buffers()
 end
 
 local function test_select_repo_root_errors_when_missing()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -381,8 +381,8 @@ local function test_select_repo_root_errors_when_missing()
 end
 
 local function test_select_repo_root_rejects_manual_repo_with_wrong_origin()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -434,8 +434,8 @@ local function test_select_repo_root_rejects_manual_repo_with_wrong_origin()
 end
 
 local function test_select_repo_root_prompts_on_ambiguous_match()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -485,8 +485,8 @@ local function test_select_repo_root_prompts_on_ambiguous_match()
 end
 
 local function test_resolve_primary_checkout()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
 
   with_repo_env({
     responses = {
@@ -511,8 +511,8 @@ local function test_resolve_primary_checkout()
 end
 
 local function test_ensure_pr_worktree_creates_detached_checkout()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -550,8 +550,8 @@ local function test_ensure_pr_worktree_creates_detached_checkout()
 end
 
 local function test_ensure_pr_worktree_updates_clean_registered_checkout()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -599,8 +599,8 @@ local function test_ensure_pr_worktree_updates_clean_registered_checkout()
 end
 
 local function test_ensure_pr_worktree_prompts_on_dirty_checkout()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -659,8 +659,8 @@ local function test_ensure_pr_worktree_prompts_on_dirty_checkout()
 end
 
 local function test_ensure_pr_worktree_rejects_unregistered_path_on_disk()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
   local pr = {
     owner = "Owner",
     repo = "Repo",
@@ -693,8 +693,8 @@ local function test_ensure_pr_worktree_rejects_unregistered_path_on_disk()
 end
 
 local function test_real_git_pr_worktree_is_created_and_reused()
-  package.loaded.copilotchat_review_repo = nil
-  local review_repo = require("copilotchat_review_repo")
+  package.loaded.review_repo = nil
+  local review_repo = require("review_repo")
 
   with_temp_dir("copilot-pr-worktree", function(root)
     local origin = vim.fs.joinpath(root, "origin.git")
@@ -769,7 +769,7 @@ function M.run()
   test_ensure_pr_worktree_prompts_on_dirty_checkout()
   test_ensure_pr_worktree_rejects_unregistered_path_on_disk()
   test_real_git_pr_worktree_is_created_and_reused()
-  print("PASS copilotchat_review_repo")
+  print("PASS review_repo")
 end
 
 return M
