@@ -183,6 +183,9 @@ local function with_review_prep(stubs, fn)
       end,
       open = function()
         helpers.claude.opened = helpers.claude.opened + 1
+        if helpers.claude.open_throws then
+          error("Process failed to start: operation not permitted")
+        end
         helpers.claude.active = not helpers.claude.never_starts
       end,
       send_to_terminal = function(text, opts)
@@ -1154,6 +1157,18 @@ local function test_run_falls_back_to_clipboard_when_claude_never_starts()
   vim.g.pr_review_prep_boot_timeout_ms = saved_timeout
 end
 
+local function test_run_falls_back_to_clipboard_when_claude_cannot_be_spawned()
+  with_review_prep(nil, function(review_prep, helpers)
+    helpers.claude.active = false
+    helpers.claude.open_throws = true
+    local notify_calls = run_with_canned_bundle(review_prep)
+
+    assert_equal(#helpers.claude.sent, 0, "nothing can be pasted when the terminal fails to spawn")
+    assert_match(vim.fn.getreg('"'), "Review GitHub PR", "the prompt should survive a failed spawn")
+    assert_match(notify_calls[#notify_calls].message, "copied to the clipboard", "a failed spawn should be reported")
+  end)
+end
+
 local function test_run_falls_back_to_clipboard_without_claudecode()
   with_review_prep(nil, function(review_prep, helpers)
     helpers.claude.available = false
@@ -1200,6 +1215,7 @@ function M.run()
   test_run_pastes_prompt_into_running_claude_terminal_without_submitting()
   test_run_starts_claude_terminal_when_none_is_running()
   test_run_falls_back_to_clipboard_when_claude_never_starts()
+  test_run_falls_back_to_clipboard_when_claude_cannot_be_spawned()
   test_run_falls_back_to_clipboard_without_claudecode()
   test_run_falls_back_to_clipboard_when_claude_channel_is_closed()
   test_setup_registers_command()

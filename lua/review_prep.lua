@@ -252,8 +252,14 @@ local function handoff_prompt(prompt, on_done)
     return
   end
 
-  -- No session yet: start one, then paste once its TUI is reading input.
-  terminal.open()
+  -- No session yet: start one, then paste once its TUI is reading input. Opening
+  -- can throw (e.g. the claude binary cannot be spawned); the prompt must still
+  -- reach the clipboard then.
+  if not pcall(terminal.open) then
+    copy_prompt(prompt)
+    on_done("clipboard")
+    return
+  end
   local waited = 0
   local timer = vim.uv.new_timer()
   timer:start(
