@@ -19,6 +19,66 @@ return {
         default_direction = "left",
       })
 
+      -- LazyVim's default kind filter keeps Property/Field but drops
+      -- Constant/Variable. In TypeScript that hides every `const x = ...`
+      -- declaration and promotes the keys of its object literal to the top
+      -- level, so the tree becomes a flat list of `name`, `version`, `files`.
+      -- Show declarations instead, and drop the keys.
+      local ts_kinds = {
+        "Class",
+        "Constant",
+        "Constructor",
+        "Enum",
+        "Function",
+        "Interface",
+        "Method",
+        "Module",
+        "Namespace",
+        "Struct",
+        "Variable",
+      }
+      opts.filter_kind = opts.filter_kind or {}
+      if type(opts.filter_kind) == "table" then
+        for _, ft in ipairs({ "typescript", "typescriptreact", "javascript", "javascriptreact" }) do
+          opts.filter_kind[ft] = ts_kinds
+        end
+      end
+
+      -- tsserver emits every anonymous function argument as a symbol named
+      -- `<function>` or `filter() callback`. They carry no information, so
+      -- remove them and hoist any named symbols they contain into the
+      -- enclosing scope. aerial reads `level`/`parent` as stored, so both are
+      -- rebuilt here.
+      local ts_clients = { vtsls = true, ts_ls = true, tsserver = true }
+      local function is_callback(item)
+        return item.kind == "Function" and (item.name == "<function>" or item.name:match("%) callback$") ~= nil)
+      end
+      local function hoist_callbacks(items, parent, level)
+        local out = {}
+        for _, item in ipairs(items) do
+          if is_callback(item) then
+            vim.list_extend(out, hoist_callbacks(item.children or {}, parent, level))
+          else
+            item.parent = parent
+            item.level = level
+            if item.children then
+              item.children = hoist_callbacks(item.children, item, level + 1)
+              if #item.children == 0 then
+                item.children = nil
+              end
+            end
+            table.insert(out, item)
+          end
+        end
+        return out
+      end
+      opts.post_add_all_symbols = function(_, items, ctx)
+        if ctx.backend_name == "lsp" and ts_clients[ctx.lang] then
+          return hoist_callbacks(items, nil, 0)
+        end
+        return items
+      end
+
       -- yaml-language-server (used directly, and by helm-ls under the hood)
       -- reports each item of a YAML sequence as a "Module" symbol whose name
       -- is just its numeric index (e.g. "0", "1", "2"), which makes the
@@ -28,6 +88,16 @@ return {
       -- pulled from the raw LSP symbol's `detail` (aerial doesn't keep it).
       local label_keys = { "name", "id", "key" }
       opts.post_parse_symbol = function(_, item, ctx)
+        -- Locals inside function bodies are noise in the outline; only
+        -- module-level constants/variables are worth listing.
+        if
+          ctx.backend_name == "lsp"
+          and (item.kind == "Constant" or item.kind == "Variable")
+          and item.level > 0
+          and vim.tbl_contains({ "vtsls", "ts_ls", "tsserver" }, ctx.lang)
+        then
+          return false
+        end
         if ctx.backend_name == "lsp" and item.kind == "Module" and item.name:match("^%d+$") then
           local raw_children = ctx.symbol and ctx.symbol.children
           if raw_children then
