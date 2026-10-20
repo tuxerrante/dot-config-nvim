@@ -1127,7 +1127,10 @@ local function test_run_replaces_running_claude_session_with_a_fresh_one_in_the_
   vim.g.pr_review_prep_boot_delay_ms = 10
   with_review_prep(nil, function(review_prep, helpers)
     local old_buf = helpers.claude.buf
-    with_stub(vim, "notify", function() end, function()
+    local messages = {}
+    with_stub(vim, "notify", function(message)
+      table.insert(messages, message)
+    end, function()
       run_with_canned_bundle(review_prep)
       assert_truthy(
         vim.wait(2000, function()
@@ -1135,7 +1138,9 @@ local function test_run_replaces_running_claude_session_with_a_fresh_one_in_the_
         end, 20),
         "the prompt should be pasted into the new session"
       )
+      vim.wait(200)
     end)
+    assert_match(messages[#messages], "pasted into a new Claude Code session", "the notification should say a new session was started")
 
     assert_truthy(not vim.api.nvim_buf_is_valid(old_buf), "the previous Claude Code terminal buffer should be wiped")
     assert_equal(helpers.claude.opened, 1, "exactly one fresh session should be started")

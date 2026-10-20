@@ -780,7 +780,8 @@ function M.run(pr_url, opts)
           if target == "claude" then
             notify(
               string.format(
-                "Prompt pasted into Claude Code (%s, %d caveat(s)). Edit it, then press Enter.",
+                "Prompt pasted into %s (%s, %d caveat(s)). Edit it, then press Enter.",
+                new_session_enabled() and "a new Claude Code session" or "Claude Code",
                 cache_state,
                 caveat_count
               )
