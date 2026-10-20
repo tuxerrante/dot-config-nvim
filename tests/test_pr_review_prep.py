@@ -188,6 +188,68 @@ class GithubDiffContextTests(unittest.TestCase):
         self.assertIn("+new line", diff["excerpt"])
 
 
+class PrMergeStateTests(unittest.TestCase):
+    url = "https://github.com/Owner/Repo/pull/123"
+
+    def view_payload(self, state: str, merge_state: str) -> dict[str, object]:
+        return {
+            "number": 123,
+            "title": "T",
+            "body": "",
+            "author": {"login": "someone"},
+            "baseRefName": "main",
+            "headRefName": "topic",
+            "files": [],
+            "url": self.url,
+            "state": state,
+            "isDraft": False,
+            "mergeStateStatus": merge_state,
+            "reviewDecision": "",
+        }
+
+    def collect(self, payloads: list[dict[str, object]]) -> tuple[dict[str, object], list[str], int]:
+        views = iter(payloads)
+        calls = []
+
+        def fake_run(argv: list[str], cwd: str | None = None, timeout: int = 20) -> dict[str, object]:
+            calls.append(argv)
+            return {"ok": True, "code": 0, "stdout": json.dumps(next(views)), "stderr": ""}
+
+        with mock.patch.object(pr_review_prep, "command_exists", return_value=True), mock.patch.object(
+            pr_review_prep, "run_command", side_effect=fake_run
+        ), mock.patch.object(pr_review_prep.time, "sleep") as sleep:
+            meta, caveats = pr_review_prep.gh_pr_metadata(self.url)
+        self.assertEqual(sleep.call_count, len(calls) - 1)
+        return meta, caveats, len(calls)
+
+    def test_open_pr_unknown_merge_state_is_read_again_until_it_resolves(self) -> None:
+        meta, caveats, calls = self.collect(
+            [self.view_payload("OPEN", "UNKNOWN"), self.view_payload("OPEN", "UNKNOWN"), self.view_payload("OPEN", "DIRTY")]
+        )
+
+        self.assertEqual(calls, 3)
+        self.assertEqual(meta["merge_state"], "DIRTY")
+        self.assertEqual(meta["state"], "OPEN")
+        self.assertEqual(caveats, [])
+
+    def test_open_pr_that_stays_unknown_gets_a_caveat_after_bounded_retries(self) -> None:
+        meta, caveats, calls = self.collect(
+            [self.view_payload("OPEN", "UNKNOWN")] * (pr_review_prep.MERGE_STATE_RETRIES + 1)
+        )
+
+        self.assertEqual(calls, pr_review_prep.MERGE_STATE_RETRIES + 1)
+        self.assertEqual(meta["merge_state"], "UNKNOWN")
+        self.assertEqual(len(caveats), 1)
+        self.assertIn("had not computed the merge state", caveats[0])
+
+    def test_merged_pr_is_not_retried_because_unknown_is_permanent(self) -> None:
+        meta, caveats, calls = self.collect([self.view_payload("MERGED", "UNKNOWN")])
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(meta["state"], "MERGED")
+        self.assertEqual(caveats, [])
+
+
 class PrConversationCollectionTests(unittest.TestCase):
     def pr_meta(self) -> dict[str, object]:
         return {

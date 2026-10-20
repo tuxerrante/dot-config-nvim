@@ -1191,6 +1191,28 @@ local function test_run_falls_back_to_clipboard_when_claude_channel_is_closed()
   end)
 end
 
+local function test_build_prompt_reports_pr_state_instead_of_unknown_merge_state()
+  with_review_prep(nil, function(review_prep)
+    local function prompt_for(pr)
+      pr.url = "https://github.com/Owner/Repo/pull/123"
+      pr.title = "T"
+      pr.owner_repo = "Owner/Repo"
+      pr.files = {}
+      return review_prep.build_prompt({ pr = pr, repo = {}, caveats = {} })
+    end
+
+    local merged = prompt_for({ state = "MERGED", merge_state = "UNKNOWN" })
+    assert_match(merged, "state: `MERGED`", "a merged PR should say it is merged")
+    assert_not_match(merged, "merge state: `UNKNOWN`", "UNKNOWN is meaningless for a merged PR and must not be shown")
+
+    local open = prompt_for({ state = "OPEN", is_draft = true, merge_state = "DIRTY" })
+    assert_match(open, "state: `OPEN` (draft), merge state: `DIRTY`", "an open PR keeps its real merge state and draft flag")
+
+    local legacy = prompt_for({ merge_state = "BLOCKED" })
+    assert_match(legacy, "merge state: `BLOCKED`", "a cached bundle without state still renders its merge state")
+  end)
+end
+
 local function test_setup_registers_command()
   with_review_prep(nil, function(review_prep)
     review_prep.setup()
@@ -1218,6 +1240,7 @@ function M.run()
   test_run_falls_back_to_clipboard_when_claude_cannot_be_spawned()
   test_run_falls_back_to_clipboard_without_claudecode()
   test_run_falls_back_to_clipboard_when_claude_channel_is_closed()
+  test_build_prompt_reports_pr_state_instead_of_unknown_merge_state()
   test_setup_registers_command()
   print("PASS review_prep")
 end

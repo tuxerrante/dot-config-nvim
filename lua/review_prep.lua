@@ -485,6 +485,23 @@ local function summarize_pr_diff(diff)
   return rows
 end
 
+-- GitHub reports mergeStateStatus UNKNOWN for every merged or closed PR, so the
+-- PR state is what tells the reviewer anything there.
+local function pr_state_line(pr)
+  local state = maybe_string(pr.state)
+  local merge_state = maybe_string(pr.merge_state)
+  if state and state ~= "OPEN" then
+    return string.format("state: `%s` (GitHub reports no merge state for a %s PR)", state, state:lower())
+  end
+
+  local parts = {}
+  if state then
+    table.insert(parts, string.format("state: `%s`%s", state, pr.is_draft == true and " (draft)" or ""))
+  end
+  table.insert(parts, string.format("merge state: `%s`", merge_state or "unknown"))
+  return table.concat(parts, ", ")
+end
+
 function M.build_prompt(bundle)
   local pr = maybe_table(bundle.pr) or {}
   local repo = maybe_table(bundle.repo) or {}
@@ -501,7 +518,7 @@ function M.build_prompt(bundle)
     bullet(string.format("repo: `%s`", owner_repo)),
     bullet(string.format("base/head: `%s` <- `%s`", maybe_string(pr.base_ref) or "unknown", maybe_string(pr.head_ref) or "unknown")),
     bullet(string.format("author: `%s`", maybe_string(pr.author) or "unknown")),
-    bullet(string.format("merge state: `%s`", maybe_string(pr.merge_state) or "unknown")),
+    bullet(pr_state_line(pr)),
     bullet(string.format("review decision: `%s`", maybe_string(pr.review_decision) or "unknown")),
   }
 

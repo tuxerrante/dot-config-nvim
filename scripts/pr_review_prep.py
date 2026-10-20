@@ -17,6 +17,8 @@ from urllib import error, parse, request
 
 SCRIPT_VERSION = 5
 DEFAULT_TTL_SECONDS = 15 * 60
+MERGE_STATE_RETRIES = 3
+MERGE_STATE_RETRY_DELAY_SECONDS = 2
 ROOT_DOCS = ("AGENTS.md", "CLAUDE.md", "GEMINI.md", "README.md", "CONTRIBUTING.md")
 GENERIC_RULE_NAMES = {
     "clean-history.mdc",
@@ -847,6 +849,8 @@ def gh_pr_metadata(pr_url: str) -> tuple[dict[str, Any], list[str]]:
         "head_ref": None,
         "files": [],
         "file_stats": [],
+        "state": None,
+        "is_draft": None,
         "merge_state": None,
         "review_decision": None,
         "jira_keys": [],
@@ -857,22 +861,38 @@ def gh_pr_metadata(pr_url: str) -> tuple[dict[str, Any], list[str]]:
         caveats.append("GitHub enrichment unavailable: `gh` CLI is not installed.")
         return metadata, caveats
 
-    out = run_command(
-        [
-            "gh",
-            "pr",
-            "view",
-            pr_url,
-            "--json",
-            "number,title,body,author,baseRefName,headRefName,files,url,mergeStateStatus,reviewDecision",
-        ],
-        timeout=30,
-    )
+    view_argv = [
+        "gh",
+        "pr",
+        "view",
+        pr_url,
+        "--json",
+        "number,title,body,author,baseRefName,headRefName,files,url,state,isDraft,mergeStateStatus,reviewDecision",
+    ]
+    out = run_command(view_argv, timeout=30)
     if not out["ok"]:
         caveats.append(f"GitHub enrichment unavailable: {out['stderr'].strip() or 'gh pr view failed'}.")
         return metadata, caveats
 
     payload = json.loads(out["stdout"])
+
+    # GitHub computes mergeability lazily: the first read of an open PR can
+    # return UNKNOWN and a later one the real value. Merged and closed PRs stay
+    # UNKNOWN forever, so only open PRs are worth another read.
+    attempts = 0
+    while (
+        payload.get("state") == "OPEN"
+        and payload.get("mergeStateStatus") == "UNKNOWN"
+        and attempts < MERGE_STATE_RETRIES
+    ):
+        attempts += 1
+        time.sleep(MERGE_STATE_RETRY_DELAY_SECONDS)
+        retry = run_command(view_argv, timeout=30)
+        if not retry["ok"]:
+            break
+        payload = json.loads(retry["stdout"])
+    if payload.get("state") == "OPEN" and payload.get("mergeStateStatus") == "UNKNOWN":
+        caveats.append("GitHub had not computed the merge state yet (still UNKNOWN after retries).")
     metadata.update(
         {
             "title": payload.get("title"),
@@ -891,6 +911,8 @@ def gh_pr_metadata(pr_url: str) -> tuple[dict[str, Any], list[str]]:
                 for file in payload.get("files") or []
                 if file.get("path")
             ],
+            "state": payload.get("state"),
+            "is_draft": payload.get("isDraft"),
             "merge_state": payload.get("mergeStateStatus"),
             "review_decision": payload.get("reviewDecision"),
         }
