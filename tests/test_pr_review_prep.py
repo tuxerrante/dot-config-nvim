@@ -203,6 +203,10 @@ class PrMergeStateTests(unittest.TestCase):
             "url": self.url,
             "state": state,
             "isDraft": False,
+            "createdAt": "2026-10-19T09:12:03Z",
+            "updatedAt": "2026-10-20T08:07:12Z",
+            "mergedAt": None,
+            "closedAt": None,
             "mergeStateStatus": merge_state,
             "reviewDecision": "",
         }
@@ -241,6 +245,13 @@ class PrMergeStateTests(unittest.TestCase):
         self.assertEqual(meta["merge_state"], "UNKNOWN")
         self.assertEqual(len(caveats), 1)
         self.assertIn("had not computed the merge state", caveats[0])
+
+    def test_metadata_carries_creation_and_last_update_times(self) -> None:
+        meta, _, _ = self.collect([self.view_payload("OPEN", "CLEAN")])
+
+        self.assertEqual(meta["created_at"], "2026-10-19T09:12:03Z")
+        self.assertEqual(meta["updated_at"], "2026-10-20T08:07:12Z")
+        self.assertIsNone(meta["merged_at"])
 
     def test_merged_pr_is_not_retried_because_unknown_is_permanent(self) -> None:
         meta, caveats, calls = self.collect([self.view_payload("MERGED", "UNKNOWN")])

@@ -1270,6 +1270,37 @@ local function test_build_prompt_reports_pr_state_instead_of_unknown_merge_state
   end)
 end
 
+local function test_build_prompt_lists_creation_and_last_update_times()
+  with_review_prep(nil, function(review_prep)
+    local function prompt_for(pr)
+      pr.url = "https://github.com/Owner/Repo/pull/123"
+      pr.title = "T"
+      pr.owner_repo = "Owner/Repo"
+      pr.files = {}
+      return review_prep.build_prompt({ pr = pr, repo = {}, caveats = {} })
+    end
+
+    local open = prompt_for({ state = "OPEN", created_at = "2026-10-19T09:12:03Z", updated_at = "2026-10-20T08:07:12Z" })
+    assert_match(open, "created: `2026-10-19 09:12 UTC`", "the creation time should be listed")
+    assert_match(open, "last updated: `2026-10-20 08:07 UTC`", "the last modification time should be listed")
+    assert_not_match(open, "merged:", "an open PR has no merge time")
+
+    local merged = prompt_for({
+      state = "MERGED",
+      created_at = "2026-10-19T09:12:03Z",
+      updated_at = "2026-10-20T08:07:12Z",
+      merged_at = "2026-10-20T08:07:12Z",
+      closed_at = "2026-10-20T08:07:12Z",
+    })
+    assert_match(merged, "merged: `2026-10-20 08:07 UTC`", "a merged PR should say when it merged")
+    assert_not_match(merged, "closed:", "closed would repeat the merge time")
+
+    local legacy = prompt_for({ merge_state = "BLOCKED" })
+    assert_not_match(legacy, "created:", "a bundle without timestamps must not invent them")
+    assert_not_match(legacy, "vim.NIL", "JSON nulls must not leak into the prompt")
+  end)
+end
+
 local function test_setup_registers_command()
   with_review_prep(nil, function(review_prep)
     review_prep.setup()
@@ -1299,6 +1330,7 @@ function M.run()
   test_run_falls_back_to_clipboard_without_claudecode()
   test_run_falls_back_to_clipboard_when_claude_channel_is_closed()
   test_build_prompt_reports_pr_state_instead_of_unknown_merge_state()
+  test_build_prompt_lists_creation_and_last_update_times()
   test_setup_registers_command()
   print("PASS review_prep")
 end

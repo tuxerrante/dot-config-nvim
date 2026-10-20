@@ -510,6 +510,32 @@ local function summarize_pr_diff(diff)
   return rows
 end
 
+-- GitHub timestamps are ISO 8601 UTC; the reviewer only needs minute precision.
+local function format_time(iso)
+  local date, time = (maybe_string(iso) or ""):match("^(%d+%-%d+%-%d+)T(%d+:%d+)")
+  if not date then
+    return maybe_string(iso)
+  end
+  return string.format("%s %s UTC", date, time)
+end
+
+local function pr_time_lines(pr)
+  local lines = {}
+  local function add(label, iso)
+    local text = format_time(iso)
+    if text then
+      table.insert(lines, bullet(string.format("%s: `%s`", label, text)))
+    end
+  end
+  add("created", pr.created_at)
+  add("last updated", pr.updated_at)
+  add("merged", pr.merged_at)
+  if not maybe_string(pr.merged_at) then
+    add("closed", pr.closed_at)
+  end
+  return lines
+end
+
 -- GitHub reports mergeStateStatus UNKNOWN for every merged or closed PR, so the
 -- PR state is what tells the reviewer anything there.
 local function pr_state_line(pr)
@@ -546,6 +572,8 @@ function M.build_prompt(bundle)
     bullet(pr_state_line(pr)),
     bullet(string.format("review decision: `%s`", maybe_string(pr.review_decision) or "unknown")),
   }
+
+  vim.list_extend(facts, pr_time_lines(pr))
 
   local repo_root = maybe_string(repo.root)
   if repo_root then

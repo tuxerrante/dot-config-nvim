@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
-SCRIPT_VERSION = 5
+SCRIPT_VERSION = 6
 DEFAULT_TTL_SECONDS = 15 * 60
 MERGE_STATE_RETRIES = 3
 MERGE_STATE_RETRY_DELAY_SECONDS = 2
@@ -851,6 +851,10 @@ def gh_pr_metadata(pr_url: str) -> tuple[dict[str, Any], list[str]]:
         "file_stats": [],
         "state": None,
         "is_draft": None,
+        "created_at": None,
+        "updated_at": None,
+        "merged_at": None,
+        "closed_at": None,
         "merge_state": None,
         "review_decision": None,
         "jira_keys": [],
@@ -867,7 +871,7 @@ def gh_pr_metadata(pr_url: str) -> tuple[dict[str, Any], list[str]]:
         "view",
         pr_url,
         "--json",
-        "number,title,body,author,baseRefName,headRefName,files,url,state,isDraft,mergeStateStatus,reviewDecision",
+        "number,title,body,author,baseRefName,headRefName,files,url,state,isDraft,createdAt,updatedAt,mergedAt,closedAt,mergeStateStatus,reviewDecision",
     ]
     out = run_command(view_argv, timeout=30)
     if not out["ok"]:
@@ -913,6 +917,10 @@ def gh_pr_metadata(pr_url: str) -> tuple[dict[str, Any], list[str]]:
             ],
             "state": payload.get("state"),
             "is_draft": payload.get("isDraft"),
+            "created_at": payload.get("createdAt"),
+            "updated_at": payload.get("updatedAt"),
+            "merged_at": payload.get("mergedAt"),
+            "closed_at": payload.get("closedAt"),
             "merge_state": payload.get("mergeStateStatus"),
             "review_decision": payload.get("reviewDecision"),
         }
