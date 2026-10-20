@@ -191,14 +191,16 @@ containing:
 - Jira refs
 - degraded-mode caveats
 
+Every run starts a fresh Claude Code session in the review worktree: a running
+one is stopped (its conversation stays resumable with `claude --resume`) and a
+new one is launched there. `/clear` would not be enough, because Claude Code
+fixes its working directory at launch and would keep pointing at the previous
+review's checkout. Set `vim.g.pr_review_prep_new_session = false` to paste into
+the running session instead.
+
 The paste uses bracketed paste, so the multi-line prompt arrives as one block and
 is never submitted by an embedded newline. The Claude Code terminal takes focus
 afterwards.
-
-Claude Code reads files relative to the directory it was started in. The review
-worktree lives under `.worktrees/` of the primary checkout, so a session started
-at the primary checkout can read it; a session started elsewhere will ask for
-permission to read the path named in the prompt's `local repo root` fact.
 
 Fallbacks, each reported with a warning notification:
 

@@ -234,12 +234,37 @@ local function copy_prompt(prompt)
   pcall(vim.fn.setreg, "+", prompt)
 end
 
-local function handoff_prompt(prompt, on_done)
+-- A review starts from a clean conversation in the review checkout. Claude Code
+-- fixes its working directory at launch, so /clear would keep it pointed at the
+-- previous worktree; the session is stopped and started again instead (the old
+-- one stays resumable with `claude --resume`). Set
+-- vim.g.pr_review_prep_new_session = false to paste into the running one.
+local function new_session_enabled()
+  return vim.g.pr_review_prep_new_session ~= false
+end
+
+local function stop_session(terminal)
+  local buf = terminal.get_active_terminal_bufnr()
+  if not buf then
+    return
+  end
+  local chan = vim.b[buf].terminal_job_id
+  if chan and chan > 0 then
+    pcall(vim.fn.jobstop, chan)
+  end
+  pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end
+
+local function handoff_prompt(prompt, root, on_done)
   local terminal = claude_terminal()
   if not terminal then
     copy_prompt(prompt)
     on_done("clipboard")
     return
+  end
+
+  if new_session_enabled() then
+    stop_session(terminal)
   end
 
   if terminal.get_active_terminal_bufnr() then
@@ -255,7 +280,7 @@ local function handoff_prompt(prompt, on_done)
   -- No session yet: start one, then paste once its TUI is reading input. Opening
   -- can throw (e.g. the claude binary cannot be spawned); the prompt must still
   -- reach the clipboard then.
-  if not pcall(terminal.open) then
+  if not pcall(terminal.open, { cwd = root }) then
     copy_prompt(prompt)
     on_done("clipboard")
     return
@@ -723,7 +748,7 @@ function M.run(pr_url, opts)
         local prompt = M.build_prompt(bundle)
         local cache_state = bundle.cache_hit and "cache hit" or "fresh bundle"
         local caveat_count = #(bundle.caveats or {})
-        handoff_prompt(prompt, function(target)
+        handoff_prompt(prompt, worktree.worktree_root, function(target)
           if target == "claude" then
             notify(
               string.format(

@@ -151,6 +151,8 @@ local function with_review_prep(stubs, fn)
     opened = 0,
     sent = {},
     send_ok = true,
+    open_opts = {},
+    buf = vim.api.nvim_create_buf(false, true),
   }
   if stubs then
     if stubs.repo then
@@ -179,14 +181,22 @@ local function with_review_prep(stubs, fn)
     end
     return {
       get_active_terminal_bufnr = function()
-        return helpers.claude.active and 1 or nil
+        local c = helpers.claude
+        if c.active and c.buf and vim.api.nvim_buf_is_valid(c.buf) then
+          return c.buf
+        end
+        return nil
       end,
-      open = function()
+      open = function(open_opts)
         helpers.claude.opened = helpers.claude.opened + 1
+        table.insert(helpers.claude.open_opts, open_opts)
         if helpers.claude.open_throws then
           error("Process failed to start: operation not permitted")
         end
         helpers.claude.active = not helpers.claude.never_starts
+        if helpers.claude.active then
+          helpers.claude.buf = vim.api.nvim_create_buf(false, true)
+        end
       end,
       send_to_terminal = function(text, opts)
         table.insert(helpers.claude.sent, { text = text, opts = opts })
@@ -1094,6 +1104,8 @@ local function run_with_canned_bundle(review_prep)
 end
 
 local function test_run_pastes_prompt_into_running_claude_terminal_without_submitting()
+  local saved = vim.g.pr_review_prep_new_session
+  vim.g.pr_review_prep_new_session = false
   with_review_prep(nil, function(review_prep, helpers)
     local notify_calls = run_with_canned_bundle(review_prep)
 
@@ -1107,6 +1119,34 @@ local function test_run_pastes_prompt_into_running_claude_terminal_without_submi
     assert_match(helpers.claude.sent[1].text, "Review GitHub PR", "the pasted text should be the review prompt")
     assert_match(notify_calls[#notify_calls].message, "pasted into Claude Code", "run should say where the prompt went")
   end)
+  vim.g.pr_review_prep_new_session = saved
+end
+
+local function test_run_replaces_running_claude_session_with_a_fresh_one_in_the_worktree()
+  local saved_delay = vim.g.pr_review_prep_boot_delay_ms
+  vim.g.pr_review_prep_boot_delay_ms = 10
+  with_review_prep(nil, function(review_prep, helpers)
+    local old_buf = helpers.claude.buf
+    with_stub(vim, "notify", function() end, function()
+      run_with_canned_bundle(review_prep)
+      assert_truthy(
+        vim.wait(2000, function()
+          return #helpers.claude.sent == 1
+        end, 20),
+        "the prompt should be pasted into the new session"
+      )
+    end)
+
+    assert_truthy(not vim.api.nvim_buf_is_valid(old_buf), "the previous Claude Code terminal buffer should be wiped")
+    assert_equal(helpers.claude.opened, 1, "exactly one fresh session should be started")
+    assert_equal(
+      helpers.claude.open_opts[1],
+      { cwd = "/primary/repo/.worktrees/pr-123" },
+      "the fresh session must start in the review worktree, not wherever nvim was"
+    )
+    assert_truthy(helpers.claude.buf ~= old_buf, "the paste should land in the new terminal, not the old one")
+  end)
+  vim.g.pr_review_prep_boot_delay_ms = saved_delay
 end
 
 local function test_run_starts_claude_terminal_when_none_is_running()
@@ -1182,13 +1222,30 @@ local function test_run_falls_back_to_clipboard_without_claudecode()
 end
 
 local function test_run_falls_back_to_clipboard_when_claude_channel_is_closed()
+  local saved_delay = vim.g.pr_review_prep_boot_delay_ms
+  vim.g.pr_review_prep_boot_delay_ms = 10
   with_review_prep(nil, function(review_prep, helpers)
     helpers.claude.send_ok = false
-    local notify_calls = run_with_canned_bundle(review_prep)
-
+    local notify_calls = {}
+    with_stub(vim, "notify", function(message, level)
+      table.insert(notify_calls, { message = message, level = level })
+    end, function()
+      run_with_canned_bundle(review_prep)
+      assert_truthy(
+        vim.wait(2000, function()
+          for _, call in ipairs(notify_calls) do
+            if call.message:find("copied to the clipboard", 1, true) then
+              return true
+            end
+          end
+          return false
+        end, 20),
+        "a failed paste into the new session should be reported"
+      )
+    end)
     assert_match(vim.fn.getreg('"'), "Review GitHub PR", "a failed paste should keep the prompt in a register")
-    assert_match(notify_calls[#notify_calls].message, "copied to the clipboard", "a failed paste should be reported")
   end)
+  vim.g.pr_review_prep_boot_delay_ms = saved_delay
 end
 
 local function test_build_prompt_reports_pr_state_instead_of_unknown_merge_state()
@@ -1235,6 +1292,7 @@ function M.run()
   test_run_rejects_collector_bundle_from_wrong_repo()
   test_run_refresh_only_changes_collector_opts()
   test_run_pastes_prompt_into_running_claude_terminal_without_submitting()
+  test_run_replaces_running_claude_session_with_a_fresh_one_in_the_worktree()
   test_run_starts_claude_terminal_when_none_is_running()
   test_run_falls_back_to_clipboard_when_claude_never_starts()
   test_run_falls_back_to_clipboard_when_claude_cannot_be_spawned()
