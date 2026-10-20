@@ -1,3 +1,4 @@
+---
 name: Bug report
 description: Report a reproducible problem in this Neovim config
 title: "[bug] "
@@ -9,20 +10,22 @@ body:
       value: |
         Thanks for the report.
 
-        Please reproduce from a disposable Neovim environment when possible. Do not point an untrusted branch at your live `~/.config/nvim` profile.
+        Please reproduce from a disposable Neovim environment when possible.
+        Do not point an untrusted branch at your live `~/.config/nvim` profile.
   - type: textarea
     id: summary
     attributes:
       label: What happened?
       description: Describe the bug and the expected behavior.
-      placeholder: Opening `:CopilotPrepReview` should..., but instead...
+      placeholder: Opening `:PrepReview` should..., but instead...
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
       label: Reproduction steps
-      description: Include exact commands, key paths, or minimal repo/setup details.
+      description: >-
+        Include exact commands, key paths, or minimal repo/setup details.
       placeholder: |
         1. Run ...
         2. Open ...
@@ -47,7 +50,9 @@ body:
     attributes:
       label: Validation
       options:
-        - label: I reproduced this from a disposable Neovim environment, or I could not because the bug blocks setup before that point.
+        - label: >-
+            I reproduced this from a disposable Neovim environment, or I could
+            not because the bug blocks setup before that point.
           required: true
         - label: I am not reporting a security issue publicly.
           required: true
