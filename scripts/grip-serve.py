@@ -1,4 +1,4 @@
-#!/opt/homebrew/Cellar/grip/4.6.2_21/libexec/bin/python
+#!/usr/bin/env python3
 """
 grip only knows how to render Markdown - any other file it serves gets run
 through the same Markdown renderer (a Python script's "#" comments turn into
@@ -35,7 +35,6 @@ class CodeAwareReader(DirectoryReader):
             return "text/plain"
         return super().mimetype_for(subpath)
 
-
 def free_port():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("localhost", 0))
@@ -52,8 +51,10 @@ def main():
     # one, and announce it so the caller doesn't have to guess when we're
     # actually ready.
     port = free_port()
+    # silent: a root without a README (most directories) is still servable;
+    # grip only needs one to pick a default landing page.
+    app = Grip(CodeAwareReader(root, silent=True), quiet=True)
     print("PORT=%d" % port, flush=True)
-    app = Grip(CodeAwareReader(root), quiet=True)
     app.run(port=port)
 
 
